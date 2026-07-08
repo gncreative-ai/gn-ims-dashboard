@@ -341,7 +341,8 @@ function baseChartOptions(heightPx) {
       horzLine: { color: '#758696', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#2a2e39' }
     },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
-    handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
+    handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+    trackingMode: { exitMode: LightweightCharts.TrackingModeExitMode.OnNextTap }
   };
 }
 
