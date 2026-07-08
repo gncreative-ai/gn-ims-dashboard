@@ -1,0 +1,699 @@
+<h2 class="sr-only">Live options flow dashboard showing Nifty spot price, OHLC candles, call and put wall levels, rolling ATM call and put premium, and open interest velocity for calls and puts, with a date range selector and synced crosshair across all charts.</h2>
+<style>
+.toggleBtn{font-size:13px;}
+.toggleBtn.active{background:var(--bg-accent);color:var(--text-accent);border-color:var(--border-accent);}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+input[type="date"]{font-size:13px;}
+canvas{touch-action:pan-y;}
+@media (max-width:480px){
+  .toggleBtn{font-size:12px;padding:6px 8px;}
+  #refreshBtn{margin-left:0;}
+  #controlsRow{gap:6px;}
+}
+</style>
+
+<div id="controlsRow" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
+  <label style="font-size:13px;color:var(--text-secondary);">From</label>
+  <input type="date" id="fromDate">
+  <label style="font-size:13px;color:var(--text-secondary);">To</label>
+  <input type="date" id="toDate">
+  <button id="applyRangeBtn" style="font-size:13px;">Apply range</button>
+  <button id="backToLiveBtn" style="font-size:13px;display:none;">Back to live</button>
+  <span id="modeLabel" style="font-size:12px;color:var(--text-muted);">Live, tracking latest day</span>
+  <button id="refreshBtn" style="display:flex;align-items:center;gap:6px;font-size:13px;margin-left:auto;">
+    <i class="ti ti-refresh" id="refreshIcon" style="font-size:16px;" aria-hidden="true"></i>
+    Refresh
+  </button>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:1rem;">
+  <span id="marketStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span>
+  <span id="marketStatusText" style="font-size:12px;color:var(--text-muted);">-</span>
+  <span style="font-size:11px;color:var(--text-muted);">(9:15 to 15:30 IST, weekdays, does not account for exchange holidays)</span>
+</div>
+
+<div id="errorBox" style="display:none;background:var(--bg-danger);border-radius:var(--radius);padding:12px 14px;margin-bottom:1rem;">
+  <p style="font-size:13px;color:var(--text-danger);margin:0;font-weight:500;">Fetch error</p>
+  <p id="errorMsg" style="font-size:12px;color:var(--text-danger);margin:4px 0 0;"></p>
+</div>
+
+<div id="emptyBox" style="display:none;background:var(--surface-1);border-radius:var(--radius);padding:12px 14px;margin-bottom:1rem;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0;">No rows returned for this range.</p>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1rem;">
+  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
+    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">Spot</p>
+    <p id="mSpot" style="font-size:24px;font-weight:500;margin:0;">-</p>
+  </div>
+  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
+    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">PCR (OI)</p>
+    <p id="mPcr" style="font-size:24px;font-weight:500;margin:0;">-</p>
+  </div>
+  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
+    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">ATM straddle</p>
+    <p id="mStraddle" style="font-size:24px;font-weight:500;margin:0;">-</p>
+  </div>
+  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
+    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">Data status</p>
+    <p style="font-size:14px;font-weight:500;margin:0;display:flex;align-items:center;gap:6px;">
+      <span id="liveDot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span>
+      <span id="liveLabel">-</span>
+    </p>
+    <p id="mDate" style="font-size:12px;color:var(--text-secondary);margin:4px 0 0;">-</p>
+  </div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">
+  <button class="toggleBtn" data-key="callWall">Call wall</button>
+  <button class="toggleBtn" data-key="putWall">Put wall</button>
+  <button class="toggleBtn" data-key="callVel">Call OI velocity</button>
+  <button class="toggleBtn" data-key="putVel">Put OI velocity</button>
+  <button class="toggleBtn" data-key="netVel">Net OI velocity</button>
+  <button class="toggleBtn" data-key="atmLegs">ATM call and put</button>
+</div>
+
+<p style="font-size:11px;color:var(--text-muted);margin:0 0 8px;">Desktop: hover any chart to move the shared cursor. Mobile: touch and hold 2 seconds to lock it on, drag to move, tap again to release.</p>
+
+<div style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Nifty price with dynamic walls</p>
+  <div id="mainLegend" style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);"></div>
+  <div style="position:relative;width:100%;height:280px;">
+    <canvas id="mainChart" role="img" aria-label="Candlestick or line chart of Nifty price with call wall and put wall overlay lines through the selected range">Nifty price chart with wall levels.</canvas>
+  </div>
+  <p id="ohlcFallbackNote" style="display:none;font-size:12px;color:var(--text-muted);margin:8px 0 0;">No OHLC candle data for this range yet, showing spot price instead.</p>
+</div>
+
+<div id="panelAtm" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Rolling ATM call and put premium</p>
+  <div id="atmLegend" style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);"></div>
+  <p id="atmUnavailableNote" style="display:none;font-size:12px;color:var(--text-muted);margin:0;">Not available yet. Add atm_ce_ltp and atm_pe_ltp columns to start collecting this.</p>
+  <div id="atmChartWrap" style="position:relative;width:100%;height:160px;">
+    <canvas id="atmChart" role="img" aria-label="Line chart of rolling at the money call and put premium, with markers where the at the money strike rolled to a new strike">ATM call and put premium.</canvas>
+  </div>
+</div>
+
+<p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;">Positive (blue) means OI building. Negative (red) means OI unwinding.</p>
+
+<div id="panelCallVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Call OI velocity</p>
+  <div style="position:relative;width:100%;height:140px;">
+    <canvas id="callVelChart" role="img" aria-label="Bar chart of call open interest velocity per interval">Call OI velocity bars.</canvas>
+  </div>
+</div>
+
+<div id="panelPutVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Put OI velocity</p>
+  <div style="position:relative;width:100%;height:140px;">
+    <canvas id="putVelChart" role="img" aria-label="Bar chart of put open interest velocity per interval">Put OI velocity bars.</canvas>
+  </div>
+</div>
+
+<div id="panelNetVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Net OI velocity, call minus put</p>
+  <div style="position:relative;width:100%;height:140px;">
+    <canvas id="netVelChart" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval">Net OI velocity bars.</canvas>
+  </div>
+</div>
+
+<div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <p style="font-size:15px;font-weight:500;margin:0;">Setup signal</p>
+    <span style="font-size:11px;padding:2px 8px;border-radius:var(--radius);background:var(--surface-1);color:var(--text-muted);">Placeholder</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Setup</span><span>-</span></div>
+    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Direction</span><span>-</span></div>
+    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Entry</span><span>-</span></div>
+    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Stop loss</span><span>-</span></div>
+    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Target</span><span>-</span></div>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;">No active setup. Detection logic not yet built, layout only.</p>
+</div>
+
+<p id="lastSync" style="font-size:11px;color:var(--text-muted);text-align:right;margin:8px 0 0;"></p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+<script>
+var SUPABASE_URL = "https://qqkbkhzvhuocapcwzfwi.supabase.co";
+var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxa2JraHp2aHVvY2FwY3d6ZndpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNzMwMzAsImV4cCI6MjA5Njg0OTAzMH0.pDyEuSJQXHC2DKO1pyCn4AEuCtqng9PfUsaZWaFm30o";
+var REST = SUPABASE_URL + "/rest/v1";
+var HEADERS = { apikey: ANON_KEY, Authorization: "Bearer " + ANON_KEY };
+var isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+var colBlue = isDark ? '#3987e5' : '#2a78d6';
+var colRed = isDark ? '#e66767' : '#e34948';
+var colAqua = isDark ? '#199e70' : '#1baf7a';
+var colMuted = isDark ? '#c3c2b7' : '#52514e';
+var colGrid = isDark ? '#2c2c2a' : '#e1e0d9';
+
+var toggles = { callWall: true, putWall: true, callVel: true, putVel: true, netVel: true, atmLegs: true };
+var mode = 'live';
+var rangeFrom = null, rangeTo = null;
+var pollHandle = null;
+var rows = [];
+var ohlcRows = [];
+var atmLegsAvailable = true;
+var currentDate = null;
+
+var mainChart, callVelChart, putVelChart, netVelChart, atmChart;
+var syncCanvasIds = ['mainChart', 'callVelChart', 'putVelChart', 'netVelChart', 'atmChart'];
+
+function fmt(n, d) {
+  if (n === null || n === undefined || isNaN(n)) return '-';
+  return Number(n).toLocaleString('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d });
+}
+
+function fmtAgo(ms) {
+  var mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.floor(mins / 60);
+  return hrs + 'h ' + (mins % 60) + 'm ago';
+}
+
+function toIstMs(tsString) {
+  return new Date(tsString + '+05:30').getTime();
+}
+
+function velColors(key) {
+  return rows.map(function(r) { var v = r[key]; return (v === null || v === undefined || v >= 0) ? colBlue : colRed; });
+}
+
+document.getElementById('atmLegend').innerHTML =
+  '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colRed + ';display:inline-block;"></span>ATM call</span>' +
+  '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colAqua + ';display:inline-block;"></span>ATM put</span>' +
+  '<span style="color:var(--text-muted);">Dotted vertical line marks an ATM strike roll</span>';
+
+/* ---------- market open/closed ---------- */
+
+function isMarketOpen() {
+  var now = new Date();
+  var parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(now).reduce(function(acc, p) { acc[p.type] = p.value; return acc; }, {});
+  var weekday = parts.weekday;
+  var minutesNow = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+  var isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].indexOf(weekday) !== -1;
+  var isHours = minutesNow >= (9 * 60 + 15) && minutesNow <= (15 * 60 + 30);
+  return isWeekday && isHours;
+}
+
+function updateMarketStatus() {
+  var open = isMarketOpen();
+  var dot = document.getElementById('marketStatusDot');
+  var text = document.getElementById('marketStatusText');
+  if (open) {
+    dot.style.background = '#0ca30c';
+    text.textContent = 'Market open';
+    text.style.color = 'var(--text-success)';
+  } else {
+    dot.style.background = 'var(--text-muted)';
+    text.textContent = 'Market closed';
+    text.style.color = 'var(--text-muted)';
+  }
+}
+
+/* ---------- synced crosshair ---------- */
+
+var syncedTimeMs = null;
+var crosshairActive = false;
+var rafPending = false;
+var touchLocked = false;
+var touchTimer = null;
+
+function getAllSyncCharts() {
+  return syncCanvasIds.map(function(id) {
+    return Chart.getChart(document.getElementById(id));
+  }).filter(function(c) { return c; });
+}
+
+function nearestIndex(chart, timeMs) {
+  var ds = chart.data.datasets[0];
+  if (!ds || !ds.data || !ds.data.length) return -1;
+  var data = ds.data;
+  var closest = -1, closestDiff = Infinity;
+  for (var i = 0; i < data.length; i++) {
+    var t = data[i] ? data[i].x : null;
+    if (t === null || t === undefined) continue;
+    var diff = Math.abs(t - timeMs);
+    if (diff < closestDiff) { closestDiff = diff; closest = i; }
+  }
+  return closest;
+}
+
+var crosshairPlugin = {
+  id: 'syncCrosshair',
+  afterDatasetsDraw: function(chart) {
+    if (!crosshairActive || syncedTimeMs === null) return;
+    if (syncCanvasIds.indexOf(chart.canvas.id) === -1) return;
+    var xScale = chart.scales.x;
+    if (!xScale) return;
+    var xPos = xScale.getPixelForValue(syncedTimeMs);
+    if (xPos < chart.chartArea.left || xPos > chart.chartArea.right) return;
+    var ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = colMuted;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(xPos, chart.chartArea.top);
+    ctx.lineTo(xPos, chart.chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var idx = nearestIndex(chart, syncedTimeMs);
+    if (idx >= 0) {
+      var parts = [];
+      chart.data.datasets.forEach(function(ds) {
+        if (ds.hidden) return;
+        var pt = ds.data[idx];
+        if (!pt) return;
+        var val = (pt.c !== undefined) ? pt.c : pt.y;
+        if (val === null || val === undefined) return;
+        parts.push((ds.label || '') + ' ' + Number(val).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+      });
+      if (parts.length) {
+        var text = parts.join('   ');
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = colMuted;
+        var tw = ctx.measureText(text).width;
+        var boxX = Math.min(Math.max(xPos + 6, chart.chartArea.left), chart.chartArea.right - tw - 4);
+        ctx.fillText(text, boxX, chart.chartArea.top + 12);
+      }
+    }
+    ctx.restore();
+  }
+};
+Chart.register(crosshairPlugin);
+
+function scheduleCrosshairUpdate(timeMs) {
+  syncedTimeMs = timeMs;
+  crosshairActive = true;
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(function() {
+    getAllSyncCharts().forEach(function(chart) { chart.draw(); });
+    rafPending = false;
+  });
+}
+
+function clearCrosshair() {
+  crosshairActive = false;
+  getAllSyncCharts().forEach(function(chart) { chart.draw(); });
+}
+
+function attachCrosshairSync(canvasId) {
+  var canvas = document.getElementById(canvasId);
+
+  function handleMove(clientX) {
+    var chart = Chart.getChart(canvas);
+    if (!chart || !chart.scales.x) return;
+    var rect = canvas.getBoundingClientRect();
+    var x = clientX - rect.left;
+    var timeMs = chart.scales.x.getValueForPixel(x);
+    if (timeMs === undefined || timeMs === null || isNaN(timeMs)) return;
+    scheduleCrosshairUpdate(timeMs);
+  }
+
+  canvas.addEventListener('mousemove', function(e) { handleMove(e.clientX); });
+  canvas.addEventListener('mouseleave', function() { if (!touchLocked) clearCrosshair(); });
+
+  canvas.addEventListener('touchstart', function(e) {
+    if (touchLocked) {
+      touchLocked = false;
+      clearCrosshair();
+      return;
+    }
+    var touch = e.touches[0];
+    var startX = touch.clientX;
+    touchTimer = setTimeout(function() {
+      touchLocked = true;
+      handleMove(startX);
+    }, 2000);
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', function(e) {
+    if (touchLocked) {
+      e.preventDefault();
+      handleMove(e.touches[0].clientX);
+    } else if (touchTimer) {
+      clearTimeout(touchTimer);
+      touchTimer = null;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function() {
+    if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+  });
+}
+
+syncCanvasIds.forEach(attachCrosshairSync);
+
+/* ---------- data fetching ---------- */
+
+function fetchSnapshotsRange(from, to) {
+  var fullSelect = 'snapshot_date,snapshot_time,snapshot_timestamp,spot_price,call_wall_strike,put_wall_strike,call_oi_velocity,put_oi_velocity,pcr_oi,atm_straddle_price,atm_strike,atm_ce_ltp,atm_pe_ltp';
+  var basicSelect = 'snapshot_date,snapshot_time,snapshot_timestamp,spot_price,call_wall_strike,put_wall_strike,call_oi_velocity,put_oi_velocity,pcr_oi,atm_straddle_price,atm_strike';
+  var url = REST + '/options_snapshots?select=' + fullSelect + '&snapshot_date=gte.' + from + '&snapshot_date=lte.' + to + '&order=snapshot_timestamp.asc';
+  return fetch(url, { headers: HEADERS }).then(function(res) {
+    if (res.status === 400) {
+      atmLegsAvailable = false;
+      var url2 = REST + '/options_snapshots?select=' + basicSelect + '&snapshot_date=gte.' + from + '&snapshot_date=lte.' + to + '&order=snapshot_timestamp.asc';
+      return fetch(url2, { headers: HEADERS }).then(function(res2) {
+        if (!res2.ok) throw new Error('Snapshots fetch failed, HTTP ' + res2.status + '.');
+        return res2.json();
+      });
+    }
+    if (!res.ok) throw new Error('Snapshots fetch failed, HTTP ' + res.status + '. Check RLS select policy is enabled.');
+    atmLegsAvailable = true;
+    return res.json();
+  });
+}
+
+function fetchOhlcRange(from, to) {
+  var url = REST + '/nifty_ohlc_3min?select=candle_timestamp,open,high,low,close&candle_date=gte.' + from + '&candle_date=lte.' + to + '&order=candle_timestamp.asc';
+  return fetch(url, { headers: HEADERS }).then(function(res) {
+    if (!res.ok) return [];
+    return res.json();
+  }).catch(function() { return []; });
+}
+
+/* ---------- chart builders ---------- */
+
+function candlestickControllerReady() {
+  try {
+    Chart.registry.getController('candlestick');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function buildMainChart() {
+  if (mainChart) mainChart.destroy();
+  var ctx = document.getElementById('mainChart');
+  var datasets = [];
+  var usingCandles = ohlcRows.length > 0 && candlestickControllerReady();
+
+  document.getElementById('mainLegend').innerHTML =
+    (usingCandles
+      ? '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colBlue + ';display:inline-block;"></span>Nifty candles, blue up / red down</span>'
+      : '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colBlue + ';display:inline-block;"></span>Spot</span>') +
+    '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colRed + ';display:inline-block;"></span>Call wall, dashed</span>' +
+    '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colAqua + ';display:inline-block;"></span>Put wall, dotted</span>';
+
+  if (usingCandles) {
+    datasets.push({
+      label: 'Nifty',
+      type: 'candlestick',
+      data: ohlcRows.map(function(r) {
+        return { x: toIstMs(r.candle_timestamp), o: r.open, h: r.high, l: r.low, c: r.close };
+      }),
+      color: { up: colBlue, down: colRed, unchanged: colMuted }
+    });
+  } else {
+    datasets.push({
+      label: 'Spot',
+      type: 'line',
+      data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.spot_price }; }),
+      borderColor: colBlue, backgroundColor: colBlue, borderWidth: 2, pointRadius: 0, tension: 0.15
+    });
+  }
+
+  datasets.push({
+    label: 'Call wall', type: 'line',
+    data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.call_wall_strike }; }),
+    borderColor: colRed, backgroundColor: colRed, borderWidth: 1.5, borderDash: [6, 3], pointRadius: 0, stepped: true, hidden: !toggles.callWall
+  });
+  datasets.push({
+    label: 'Put wall', type: 'line',
+    data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.put_wall_strike }; }),
+    borderColor: colAqua, backgroundColor: colAqua, borderWidth: 1.5, borderDash: [2, 2], pointRadius: 0, stepped: true, hidden: !toggles.putWall
+  });
+
+  mainChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { type: 'time', time: { tooltipFormat: 'dd LLL HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
+        y: { beginAtZero: false, ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
+      }
+    }
+  });
+
+  document.getElementById('ohlcFallbackNote').style.display = usingCandles ? 'none' : 'block';
+
+  if (usingCandles) {
+    requestAnimationFrame(function() {
+      var yMax = mainChart && mainChart.scales && mainChart.scales.y ? mainChart.scales.y.max : null;
+      if (!yMax || yMax < 1000) {
+        console.warn('Candlestick render looked broken (y max ' + yMax + '), falling back to spot line.');
+        ohlcRows = [];
+        buildMainChart();
+      }
+    });
+  }
+}
+
+function buildAtmChart() {
+  if (atmChart) atmChart.destroy();
+  if (!atmLegsAvailable) {
+    document.getElementById('atmUnavailableNote').style.display = 'block';
+    document.getElementById('atmChartWrap').style.display = 'none';
+    return;
+  }
+  document.getElementById('atmUnavailableNote').style.display = 'none';
+  document.getElementById('atmChartWrap').style.display = 'block';
+
+  var rollTimes = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i].atm_strike !== rows[i - 1].atm_strike) rollTimes.push(toIstMs(rows[i].snapshot_timestamp));
+  }
+
+  var rollPlugin = {
+    id: 'rollMarkers',
+    afterDatasetsDraw: function(chart) {
+      var ctx2 = chart.ctx;
+      var xScale = chart.scales.x;
+      var top = chart.chartArea.top, bottom = chart.chartArea.bottom;
+      ctx2.save();
+      ctx2.strokeStyle = colMuted;
+      ctx2.setLineDash([2, 2]);
+      rollTimes.forEach(function(t) {
+        var xPos = xScale.getPixelForValue(t);
+        if (xPos < chart.chartArea.left || xPos > chart.chartArea.right) return;
+        ctx2.beginPath();
+        ctx2.moveTo(xPos, top);
+        ctx2.lineTo(xPos, bottom);
+        ctx2.stroke();
+      });
+      ctx2.restore();
+    }
+  };
+
+  var ctx = document.getElementById('atmChart');
+  atmChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'ATM call', data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.atm_ce_ltp }; }), borderColor: colRed, backgroundColor: colRed, borderWidth: 2, pointRadius: 0 },
+        { label: 'ATM put', data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.atm_pe_ltp }; }), borderColor: colAqua, backgroundColor: colAqua, borderWidth: 2, pointRadius: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { type: 'time', time: { tooltipFormat: 'HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
+      }
+    },
+    plugins: [rollPlugin]
+  });
+}
+
+function buildVelChart(canvasId, key) {
+  var ctx = document.getElementById(canvasId);
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      datasets: [{
+        data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r[key] }; }),
+        backgroundColor: velColors(key),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { type: 'time', time: { tooltipFormat: 'HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
+      }
+    }
+  });
+}
+
+function renderCharts() {
+  if (callVelChart) callVelChart.destroy();
+  if (putVelChart) putVelChart.destroy();
+  if (netVelChart) netVelChart.destroy();
+  buildMainChart();
+  buildAtmChart();
+  callVelChart = buildVelChart('callVelChart', 'call_oi_velocity');
+  putVelChart = buildVelChart('putVelChart', 'put_oi_velocity');
+  netVelChart = buildVelChart('netVelChart', 'netVel');
+}
+
+/* ---------- metrics and state ---------- */
+
+function updateMetrics() {
+  var latest = rows.length ? rows[rows.length - 1] : null;
+  document.getElementById('mSpot').textContent = latest ? fmt(latest.spot_price, 2) : '-';
+  document.getElementById('mPcr').textContent = latest ? fmt(latest.pcr_oi, 3) : '-';
+  document.getElementById('mStraddle').textContent = latest ? fmt(latest.atm_straddle_price, 2) : '-';
+  document.getElementById('mDate').textContent = currentDate || '-';
+  updateMarketStatus();
+
+  var liveDot = document.getElementById('liveDot');
+  var liveLabel = document.getElementById('liveLabel');
+  if (latest && latest.snapshot_timestamp) {
+    var t = toIstMs(latest.snapshot_timestamp);
+    var diff = Date.now() - t;
+    var mins = diff / 60000;
+    if (mode === 'range') {
+      liveDot.style.background = 'var(--text-muted)';
+      liveLabel.textContent = 'Historical view';
+      liveLabel.style.color = 'var(--text-muted)';
+    } else if (mins < 5) {
+      liveDot.style.background = '#0ca30c'; liveLabel.textContent = 'Live'; liveLabel.style.color = 'var(--text-success)';
+    } else if (mins < 30) {
+      liveDot.style.background = '#fab219'; liveLabel.textContent = 'Delayed'; liveLabel.style.color = 'var(--text-warning)';
+    } else {
+      liveDot.style.background = 'var(--text-muted)'; liveLabel.textContent = 'Stale, ' + fmtAgo(diff); liveLabel.style.color = 'var(--text-muted)';
+    }
+  } else {
+    liveDot.style.background = 'var(--text-muted)';
+    liveLabel.textContent = 'No data';
+    liveLabel.style.color = 'var(--text-muted)';
+  }
+}
+
+function updatePanelVisibility() {
+  document.getElementById('panelCallVel').style.display = toggles.callVel ? 'block' : 'none';
+  document.getElementById('panelPutVel').style.display = toggles.putVel ? 'block' : 'none';
+  document.getElementById('panelNetVel').style.display = toggles.netVel ? 'block' : 'none';
+  document.getElementById('panelAtm').style.display = toggles.atmLegs ? 'block' : 'none';
+}
+
+function handleError(e) {
+  document.getElementById('errorMsg').textContent = (e && e.message) || 'Unknown error';
+  document.getElementById('errorBox').style.display = 'block';
+}
+
+function loadRange(from, to) {
+  currentDate = to;
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('emptyBox').style.display = 'none';
+  document.getElementById('refreshIcon').style.animation = 'spin 0.8s linear infinite';
+
+  Promise.all([fetchSnapshotsRange(from, to), fetchOhlcRange(from, to)])
+    .then(function(results) {
+      rows = results[0].map(function(r) {
+        var cv = (r.call_oi_velocity === null || r.call_oi_velocity === undefined) ? 0 : r.call_oi_velocity;
+        var pv = (r.put_oi_velocity === null || r.put_oi_velocity === undefined) ? 0 : r.put_oi_velocity;
+        r.netVel = cv - pv;
+        return r;
+      });
+      ohlcRows = results[1];
+      if (!rows.length) document.getElementById('emptyBox').style.display = 'block';
+      renderCharts();
+      updateMetrics();
+      updatePanelVisibility();
+      document.getElementById('lastSync').textContent = 'Last synced ' + new Date().toLocaleTimeString();
+    })
+    .catch(handleError)
+    .finally(function() {
+      document.getElementById('refreshIcon').style.animation = '';
+    });
+}
+
+function resolveDatesAndLoad() {
+  if (mode === 'live') {
+    fetch(REST + '/options_snapshots?select=snapshot_date&order=snapshot_date.desc&limit=1', { headers: HEADERS })
+      .then(function(res) {
+        if (!res.ok) throw new Error('Date lookup failed, HTTP ' + res.status + '. Check RLS select policy is enabled.');
+        return res.json();
+      })
+      .then(function(dateJson) {
+        if (!dateJson.length) {
+          rows = []; ohlcRows = []; currentDate = null;
+          updateMetrics();
+          document.getElementById('emptyBox').style.display = 'block';
+          document.getElementById('lastSync').textContent = 'Last synced ' + new Date().toLocaleTimeString();
+          return;
+        }
+        var d = dateJson[0].snapshot_date;
+        loadRange(d, d);
+      })
+      .catch(handleError);
+  } else {
+    if (!rangeFrom || !rangeTo) return;
+    loadRange(rangeFrom, rangeTo);
+  }
+}
+
+document.querySelectorAll('.toggleBtn').forEach(function(btn) {
+  if (toggles[btn.getAttribute('data-key')]) btn.classList.add('active');
+  btn.addEventListener('click', function() {
+    var key = btn.getAttribute('data-key');
+    toggles[key] = !toggles[key];
+    btn.classList.toggle('active');
+    if (key === 'callWall' && mainChart) {
+      mainChart.data.datasets[mainChart.data.datasets.length - 2].hidden = !toggles.callWall;
+      mainChart.update();
+    } else if (key === 'putWall' && mainChart) {
+      mainChart.data.datasets[mainChart.data.datasets.length - 1].hidden = !toggles.putWall;
+      mainChart.update();
+    } else {
+      updatePanelVisibility();
+    }
+  });
+});
+
+document.getElementById('refreshBtn').addEventListener('click', resolveDatesAndLoad);
+
+document.getElementById('applyRangeBtn').addEventListener('click', function() {
+  var f = document.getElementById('fromDate').value;
+  var t = document.getElementById('toDate').value;
+  if (!f || !t) return;
+  mode = 'range'; rangeFrom = f; rangeTo = t;
+  document.getElementById('backToLiveBtn').style.display = 'inline-block';
+  document.getElementById('modeLabel').textContent = 'Range: ' + f + ' to ' + t;
+  if (pollHandle) clearInterval(pollHandle);
+  resolveDatesAndLoad();
+});
+
+document.getElementById('backToLiveBtn').addEventListener('click', function() {
+  mode = 'live'; rangeFrom = null; rangeTo = null;
+  document.getElementById('backToLiveBtn').style.display = 'none';
+  document.getElementById('modeLabel').textContent = 'Live, tracking latest day';
+  resolveDatesAndLoad();
+  pollHandle = setInterval(resolveDatesAndLoad, 45000);
+});
+
+resolveDatesAndLoad();
+pollHandle = setInterval(resolveDatesAndLoad, 45000);
+setInterval(updateMetrics, 15000);
+
+</script>

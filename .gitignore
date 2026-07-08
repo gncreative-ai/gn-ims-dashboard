@@ -1,0 +1,20 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Env / secrets (this project's Supabase key is anon/read-only and lives in the HTML intentionally,
+# but keep this here in case future tooling introduces real secrets)
+.env
+.env.*
+
+# Node (in case tooling is added later)
+node_modules/
+
+# Local Claude Code settings
+.claude/settings.local.json
