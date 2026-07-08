@@ -1,71 +1,177 @@
-<h2 class="sr-only">Live options flow dashboard showing Nifty spot price, OHLC candles, call and put wall levels, rolling ATM call and put premium, and open interest velocity for calls and puts, with a date range selector and synced crosshair across all charts.</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nifty 50 Options Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-.toggleBtn{font-size:13px;}
-.toggleBtn.active{background:var(--bg-accent);color:var(--text-accent);border-color:var(--border-accent);}
-@keyframes spin{to{transform:rotate(360deg)}}
+:root{
+  --bg:#131722;
+  --bg-panel:#1a1e2a;
+  --bg-panel-alt:#1e2230;
+  --bg-inset:#0f1219;
+  --border:#2a2e39;
+  --text-primary:#d1d4dc;
+  --text-secondary:#9598a1;
+  --text-muted:#5d606b;
+  --accent-blue:#2962ff;
+  --up:#26a69a;
+  --down:#ef5350;
+  --warn:#ff9800;
+  --danger-bg:#3a1f24;
+  --radius:8px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text-primary);
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-size:14px;
+  -webkit-font-smoothing:antialiased;
+}
+.app{max-width:1400px;margin:0 auto;padding:0 0 32px;}
+header.topbar{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  padding:14px 20px;border-bottom:1px solid var(--border);margin-bottom:16px;
+}
+header.topbar .title{font-size:15px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;}
+header.topbar .title .dot{width:7px;height:7px;border-radius:50%;background:var(--accent-blue);display:inline-block;}
+main{padding:0 20px;}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
-input[type="date"]{font-size:13px;}
-canvas{touch-action:pan-y;}
+
+#controlsRow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;}
+#controlsRow label{font-size:12px;color:var(--text-secondary);}
+input[type="date"]{
+  font-size:13px;background:var(--bg-panel-alt);border:1px solid var(--border);color:var(--text-primary);
+  border-radius:6px;padding:6px 8px;font-family:inherit;
+}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer;}
+button{
+  font-family:inherit;font-size:13px;background:var(--bg-panel-alt);color:var(--text-secondary);
+  border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer;transition:all .15s ease;
+}
+button:hover{border-color:#3a3f4d;color:var(--text-primary);}
+.toggleBtn.active{background:rgba(41,98,255,0.14);color:var(--accent-blue);border-color:var(--accent-blue);}
+#refreshBtn{display:flex;align-items:center;gap:6px;margin-left:auto;}
+#fitBtn{display:flex;align-items:center;gap:6px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.icon-refresh.spinning{animation:spin 0.8s linear infinite;}
 @media (max-width:480px){
   .toggleBtn{font-size:12px;padding:6px 8px;}
   #refreshBtn{margin-left:0;}
   #controlsRow{gap:6px;}
 }
-</style>
 
-<div id="controlsRow" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;">
-  <label style="font-size:13px;color:var(--text-secondary);">From</label>
+#marketStatusRow{display:flex;align-items:center;gap:6px;margin-bottom:16px;}
+.statusDot{width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;}
+#marketStatusText{font-size:12px;color:var(--text-muted);}
+.hint{font-size:11px;color:var(--text-muted);}
+
+#errorBox{display:none;background:var(--danger-bg);border:1px solid #5c2b30;border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;}
+#errorBox p{margin:0;font-size:13px;color:var(--down);font-weight:500;}
+#errorBox p#errorMsg{font-size:12px;font-weight:400;margin-top:4px;}
+
+#emptyBox{display:none;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;}
+#emptyBox p{margin:0;font-size:13px;color:var(--text-secondary);}
+
+.metricsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;}
+.metricCard{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+.metricCard .label{font-size:12px;color:var(--text-secondary);margin:0 0 6px;}
+.metricCard .value{font-size:22px;font-weight:600;margin:0;letter-spacing:-0.2px;}
+.metricCard .subvalue{font-size:12px;color:var(--text-secondary);margin:4px 0 0;}
+.liveWrap{display:flex;align-items:center;gap:6px;}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(38,166,154,0.55);}70%{box-shadow:0 0 0 6px rgba(38,166,154,0);}100%{box-shadow:0 0 0 0 rgba(38,166,154,0);}}
+.liveDotPulse{animation:livePulse 1.8s ease-out infinite;}
+
+.toggleRow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+
+.panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+.panel .panelTitle{font-size:13px;color:var(--text-secondary);margin:0 0 8px;font-weight:500;}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);}
+.legend .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle;}
+.chartWrap{position:relative;width:100%;}
+.fallbackNote{display:none;font-size:12px;color:var(--text-muted);margin:8px 0 0;}
+
+.setupPanel{background:var(--bg-panel-alt);border:1px solid var(--border);border-radius:12px;padding:16px 20px;}
+.setupPanel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.setupPanel .head p{font-size:15px;font-weight:500;margin:0;}
+.setupPanel .badge{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--bg-inset);color:var(--text-muted);}
+.setupRow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;}
+.setupRow span:first-child{color:var(--text-secondary);}
+.setupPanel .footNote{font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;}
+
+#lastSync{font-size:11px;color:var(--text-muted);text-align:right;margin:8px 20px 0;}
+</style>
+</head>
+<body>
+<div class="app">
+<h2 class="sr-only">Live options flow dashboard showing Nifty spot price, candles, call and put wall levels, rolling ATM call and put premium, and open interest velocity for calls and puts, with a date range selector and synced crosshair across all charts.</h2>
+
+<header class="topbar">
+  <span class="title"><span class="dot"></span>Nifty 50 Options Flow</span>
+  <div id="marketStatusRow" style="margin:0;">
+    <span class="statusDot" id="marketStatusDot"></span>
+    <span id="marketStatusText">-</span>
+    <span class="hint">&nbsp;(9:15&ndash;15:30 IST, weekdays, does not account for exchange holidays)</span>
+  </div>
+</header>
+
+<main>
+
+<div id="controlsRow">
+  <label for="fromDate">From</label>
   <input type="date" id="fromDate">
-  <label style="font-size:13px;color:var(--text-secondary);">To</label>
+  <label for="toDate">To</label>
   <input type="date" id="toDate">
-  <button id="applyRangeBtn" style="font-size:13px;">Apply range</button>
-  <button id="backToLiveBtn" style="font-size:13px;display:none;">Back to live</button>
-  <span id="modeLabel" style="font-size:12px;color:var(--text-muted);">Live, tracking latest day</span>
-  <button id="refreshBtn" style="display:flex;align-items:center;gap:6px;font-size:13px;margin-left:auto;">
-    <i class="ti ti-refresh" id="refreshIcon" style="font-size:16px;" aria-hidden="true"></i>
+  <button id="applyRangeBtn">Apply range</button>
+  <button id="backToLiveBtn" style="display:none;">Back to live</button>
+  <span id="modeLabel" class="hint">Live, tracking latest day</span>
+  <button id="fitBtn" title="Reset zoom / scroll to fit all data">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+    Fit
+  </button>
+  <button id="refreshBtn">
+    <svg class="icon-refresh" id="refreshIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
     Refresh
   </button>
 </div>
 
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:1rem;">
-  <span id="marketStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span>
-  <span id="marketStatusText" style="font-size:12px;color:var(--text-muted);">-</span>
-  <span style="font-size:11px;color:var(--text-muted);">(9:15 to 15:30 IST, weekdays, does not account for exchange holidays)</span>
+<div id="errorBox">
+  <p>Fetch error</p>
+  <p id="errorMsg"></p>
 </div>
 
-<div id="errorBox" style="display:none;background:var(--bg-danger);border-radius:var(--radius);padding:12px 14px;margin-bottom:1rem;">
-  <p style="font-size:13px;color:var(--text-danger);margin:0;font-weight:500;">Fetch error</p>
-  <p id="errorMsg" style="font-size:12px;color:var(--text-danger);margin:4px 0 0;"></p>
+<div id="emptyBox">
+  <p>No rows returned for this range.</p>
 </div>
 
-<div id="emptyBox" style="display:none;background:var(--surface-1);border-radius:var(--radius);padding:12px 14px;margin-bottom:1rem;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0;">No rows returned for this range.</p>
-</div>
-
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1rem;">
-  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
-    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">Spot</p>
-    <p id="mSpot" style="font-size:24px;font-weight:500;margin:0;">-</p>
+<div class="metricsGrid">
+  <div class="metricCard">
+    <p class="label">Spot</p>
+    <p class="value" id="mSpot">-</p>
   </div>
-  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
-    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">PCR (OI)</p>
-    <p id="mPcr" style="font-size:24px;font-weight:500;margin:0;">-</p>
+  <div class="metricCard">
+    <p class="label">PCR (OI)</p>
+    <p class="value" id="mPcr">-</p>
   </div>
-  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
-    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">ATM straddle</p>
-    <p id="mStraddle" style="font-size:24px;font-weight:500;margin:0;">-</p>
+  <div class="metricCard">
+    <p class="label">ATM straddle</p>
+    <p class="value" id="mStraddle">-</p>
   </div>
-  <div style="background:var(--surface-1);border-radius:var(--radius);padding:1rem;">
-    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">Data status</p>
-    <p style="font-size:14px;font-weight:500;margin:0;display:flex;align-items:center;gap:6px;">
-      <span id="liveDot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span>
+  <div class="metricCard">
+    <p class="label">Data status</p>
+    <p class="value liveWrap" style="font-size:14px;font-weight:500;">
+      <span class="statusDot" id="liveDot"></span>
       <span id="liveLabel">-</span>
     </p>
-    <p id="mDate" style="font-size:12px;color:var(--text-secondary);margin:4px 0 0;">-</p>
+    <p class="subvalue" id="mDate">-</p>
   </div>
 </div>
 
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">
+<div class="toggleRow">
   <button class="toggleBtn" data-key="callWall">Call wall</button>
   <button class="toggleBtn" data-key="putWall">Put wall</button>
   <button class="toggleBtn" data-key="callVel">Call OI velocity</button>
@@ -74,81 +180,70 @@ canvas{touch-action:pan-y;}
   <button class="toggleBtn" data-key="atmLegs">ATM call and put</button>
 </div>
 
-<p style="font-size:11px;color:var(--text-muted);margin:0 0 8px;">Desktop: hover any chart to move the shared cursor. Mobile: touch and hold 2 seconds to lock it on, drag to move, tap again to release.</p>
+<p class="hint" style="margin:0 0 8px;">Scroll to zoom, drag to pan, hover for the shared crosshair. Pan/zoom position is preserved across live refreshes.</p>
 
-<div style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Nifty price with dynamic walls</p>
-  <div id="mainLegend" style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);"></div>
-  <div style="position:relative;width:100%;height:280px;">
-    <canvas id="mainChart" role="img" aria-label="Candlestick or line chart of Nifty price with call wall and put wall overlay lines through the selected range">Nifty price chart with wall levels.</canvas>
-  </div>
-  <p id="ohlcFallbackNote" style="display:none;font-size:12px;color:var(--text-muted);margin:8px 0 0;">No OHLC candle data for this range yet, showing spot price instead.</p>
+<div class="panel">
+  <p class="panelTitle">Nifty price with dynamic walls</p>
+  <div class="legend" id="mainLegend"></div>
+  <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with call wall and put wall overlay lines through the selected range"></div>
+  <p id="ohlcFallbackNote" class="fallbackNote">No OHLC candle data for this range yet, showing spot price instead.</p>
 </div>
 
-<div id="panelAtm" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Rolling ATM call and put premium</p>
-  <div id="atmLegend" style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);"></div>
-  <p id="atmUnavailableNote" style="display:none;font-size:12px;color:var(--text-muted);margin:0;">Not available yet. Add atm_ce_ltp and atm_pe_ltp columns to start collecting this.</p>
-  <div id="atmChartWrap" style="position:relative;width:100%;height:160px;">
-    <canvas id="atmChart" role="img" aria-label="Line chart of rolling at the money call and put premium, with markers where the at the money strike rolled to a new strike">ATM call and put premium.</canvas>
-  </div>
+<div id="panelAtm" class="panel">
+  <p class="panelTitle">Rolling ATM call and put premium</p>
+  <div class="legend" id="atmLegend"></div>
+  <p id="atmUnavailableNote" class="fallbackNote">Not available yet. Add atm_ce_ltp and atm_pe_ltp columns to start collecting this.</p>
+  <div class="chartWrap" id="atmChartWrap" style="height:180px;" role="img" aria-label="Line chart of rolling at the money call and put premium, with markers where the at the money strike rolled to a new strike"></div>
 </div>
 
-<p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;">Positive (blue) means OI building. Negative (red) means OI unwinding.</p>
+<p class="hint" style="margin:0 0 8px;">Positive (blue) means OI building. Negative (red) means OI unwinding.</p>
 
-<div id="panelCallVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Call OI velocity</p>
-  <div style="position:relative;width:100%;height:140px;">
-    <canvas id="callVelChart" role="img" aria-label="Bar chart of call open interest velocity per interval">Call OI velocity bars.</canvas>
-  </div>
+<div id="panelCallVel" class="panel">
+  <p class="panelTitle">Call OI velocity</p>
+  <div class="chartWrap" id="callVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of call open interest velocity per interval"></div>
 </div>
 
-<div id="panelPutVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Put OI velocity</p>
-  <div style="position:relative;width:100%;height:140px;">
-    <canvas id="putVelChart" role="img" aria-label="Bar chart of put open interest velocity per interval">Put OI velocity bars.</canvas>
-  </div>
+<div id="panelPutVel" class="panel">
+  <p class="panelTitle">Put OI velocity</p>
+  <div class="chartWrap" id="putVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of put open interest velocity per interval"></div>
 </div>
 
-<div id="panelNetVel" style="background:var(--surface-1);border-radius:12px;padding:1rem;margin-bottom:12px;">
-  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">Net OI velocity, call minus put</p>
-  <div style="position:relative;width:100%;height:140px;">
-    <canvas id="netVelChart" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval">Net OI velocity bars.</canvas>
-  </div>
+<div id="panelNetVel" class="panel">
+  <p class="panelTitle">Net OI velocity, call minus put</p>
+  <div class="chartWrap" id="netVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval"></div>
 </div>
 
-<div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-    <p style="font-size:15px;font-weight:500;margin:0;">Setup signal</p>
-    <span style="font-size:11px;padding:2px 8px;border-radius:var(--radius);background:var(--surface-1);color:var(--text-muted);">Placeholder</span>
+<div class="setupPanel">
+  <div class="head">
+    <p>Setup signal</p>
+    <span class="badge">Placeholder</span>
   </div>
-  <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
-    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Setup</span><span>-</span></div>
-    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Direction</span><span>-</span></div>
-    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Entry</span><span>-</span></div>
-    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Stop loss</span><span>-</span></div>
-    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-secondary);">Target</span><span>-</span></div>
-  </div>
-  <p style="font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;">No active setup. Detection logic not yet built, layout only.</p>
+  <div class="setupRow"><span>Setup</span><span>-</span></div>
+  <div class="setupRow"><span>Direction</span><span>-</span></div>
+  <div class="setupRow"><span>Entry</span><span>-</span></div>
+  <div class="setupRow"><span>Stop loss</span><span>-</span></div>
+  <div class="setupRow"><span>Target</span><span>-</span></div>
+  <p class="footNote">No active setup. Detection logic not yet built, layout only.</p>
 </div>
 
-<p id="lastSync" style="font-size:11px;color:var(--text-muted);text-align:right;margin:8px 0 0;"></p>
+</main>
+<p id="lastSync"></p>
+</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 var SUPABASE_URL = "https://qqkbkhzvhuocapcwzfwi.supabase.co";
 var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxa2JraHp2aHVvY2FwY3d6ZndpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNzMwMzAsImV4cCI6MjA5Njg0OTAzMH0.pDyEuSJQXHC2DKO1pyCn4AEuCtqng9PfUsaZWaFm30o";
 var REST = SUPABASE_URL + "/rest/v1";
 var HEADERS = { apikey: ANON_KEY, Authorization: "Bearer " + ANON_KEY };
-var isDark = matchMedia('(prefers-color-scheme: dark)').matches;
-var colBlue = isDark ? '#3987e5' : '#2a78d6';
-var colRed = isDark ? '#e66767' : '#e34948';
-var colAqua = isDark ? '#199e70' : '#1baf7a';
-var colMuted = isDark ? '#c3c2b7' : '#52514e';
-var colGrid = isDark ? '#2c2c2a' : '#e1e0d9';
+
+var colBlue = '#2962ff';
+var colRed = '#ef5350';
+var colAqua = '#26a69a';
+var colMuted = '#5d606b';
+var colGrid = '#232632';
+var colBorder = '#2a2e39';
+var colText = '#9598a1';
 
 var toggles = { callWall: true, putWall: true, callVel: true, putVel: true, netVel: true, atmLegs: true };
 var mode = 'live';
@@ -158,9 +253,6 @@ var rows = [];
 var ohlcRows = [];
 var atmLegsAvailable = true;
 var currentDate = null;
-
-var mainChart, callVelChart, putVelChart, netVelChart, atmChart;
-var syncCanvasIds = ['mainChart', 'callVelChart', 'putVelChart', 'netVelChart', 'atmChart'];
 
 function fmt(n, d) {
   if (n === null || n === undefined || isNaN(n)) return '-';
@@ -179,14 +271,26 @@ function toIstMs(tsString) {
   return new Date(tsString + '+05:30').getTime();
 }
 
-function velColors(key) {
-  return rows.map(function(r) { var v = r[key]; return (v === null || v === undefined || v >= 0) ? colBlue : colRed; });
+function toEpochSeconds(tsString) {
+  return Math.floor(toIstMs(tsString) / 1000);
 }
 
 document.getElementById('atmLegend').innerHTML =
-  '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colRed + ';display:inline-block;"></span>ATM call</span>' +
-  '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colAqua + ';display:inline-block;"></span>ATM put</span>' +
-  '<span style="color:var(--text-muted);">Dotted vertical line marks an ATM strike roll</span>';
+  '<span><span class="swatch" style="background:' + colRed + ';"></span>ATM call</span>' +
+  '<span><span class="swatch" style="background:' + colAqua + ';"></span>ATM put</span>' +
+  '<span style="color:var(--text-muted);">Markers show where the ATM strike rolled</span>';
+
+/* ---------- IST time formatting (charts render in Asia/Kolkata regardless of viewer timezone) ---------- */
+
+var istTickFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+var istCrosshairFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+
+function tickMarkFormatter(time) {
+  return istTickFmt.format(new Date(time * 1000));
+}
+function crosshairTimeFormatter(time) {
+  return istCrosshairFmt.format(new Date(time * 1000));
+}
 
 /* ---------- market open/closed ---------- */
 
@@ -207,151 +311,210 @@ function updateMarketStatus() {
   var dot = document.getElementById('marketStatusDot');
   var text = document.getElementById('marketStatusText');
   if (open) {
-    dot.style.background = '#0ca30c';
+    dot.style.background = colAqua;
     text.textContent = 'Market open';
-    text.style.color = 'var(--text-success)';
+    text.style.color = colAqua;
   } else {
-    dot.style.background = 'var(--text-muted)';
+    dot.style.background = colMuted;
     text.textContent = 'Market closed';
-    text.style.color = 'var(--text-muted)';
+    text.style.color = colMuted;
   }
 }
 
-/* ---------- synced crosshair ---------- */
+/* ---------- chart engine: TradingView Lightweight Charts, shared across all 5 panels ---------- */
 
-var syncedTimeMs = null;
-var crosshairActive = false;
-var rafPending = false;
-var touchLocked = false;
-var touchTimer = null;
+var syncGroup = []; // [{ chart, series, resizeObserver }]
+var syncingCrosshair = false;
+var syncingRange = false;
 
-function getAllSyncCharts() {
-  return syncCanvasIds.map(function(id) {
-    return Chart.getChart(document.getElementById(id));
-  }).filter(function(c) { return c; });
+function baseChartOptions(heightPx) {
+  return {
+    height: heightPx,
+    layout: { background: { type: 'solid', color: 'transparent' }, textColor: colText, fontFamily: 'Inter, sans-serif', fontSize: 11 },
+    grid: { vertLines: { color: colGrid }, horzLines: { color: colGrid } },
+    rightPriceScale: { borderColor: colBorder },
+    timeScale: { borderColor: colBorder, timeVisible: true, secondsVisible: false, tickMarkFormatter: tickMarkFormatter },
+    localization: { timeFormatter: crosshairTimeFormatter, locale: 'en-IN' },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: '#758696', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#2a2e39' },
+      horzLine: { color: '#758696', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#2a2e39' }
+    },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+    handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
+  };
 }
 
-function nearestIndex(chart, timeMs) {
-  var ds = chart.data.datasets[0];
-  if (!ds || !ds.data || !ds.data.length) return -1;
-  var data = ds.data;
-  var closest = -1, closestDiff = Infinity;
-  for (var i = 0; i < data.length; i++) {
-    var t = data[i] ? data[i].x : null;
-    if (t === null || t === undefined) continue;
-    var diff = Math.abs(t - timeMs);
-    if (diff < closestDiff) { closestDiff = diff; closest = i; }
-  }
-  return closest;
-}
+function createSyncedChart(containerId, heightPx) {
+  var container = document.getElementById(containerId);
+  var chart = LightweightCharts.createChart(container, Object.assign({ width: container.clientWidth }, baseChartOptions(heightPx)));
+  var entry = { chart: chart, series: null, container: container };
+  syncGroup.push(entry);
 
-var crosshairPlugin = {
-  id: 'syncCrosshair',
-  afterDatasetsDraw: function(chart) {
-    if (!crosshairActive || syncedTimeMs === null) return;
-    if (syncCanvasIds.indexOf(chart.canvas.id) === -1) return;
-    var xScale = chart.scales.x;
-    if (!xScale) return;
-    var xPos = xScale.getPixelForValue(syncedTimeMs);
-    if (xPos < chart.chartArea.left || xPos > chart.chartArea.right) return;
-    var ctx = chart.ctx;
-    ctx.save();
-    ctx.strokeStyle = colMuted;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(xPos, chart.chartArea.top);
-    ctx.lineTo(xPos, chart.chartArea.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
+  var ro = new ResizeObserver(function() {
+    chart.applyOptions({ width: container.clientWidth });
+  });
+  ro.observe(container);
 
-    var idx = nearestIndex(chart, syncedTimeMs);
-    if (idx >= 0) {
-      var parts = [];
-      chart.data.datasets.forEach(function(ds) {
-        if (ds.hidden) return;
-        var pt = ds.data[idx];
-        if (!pt) return;
-        var val = (pt.c !== undefined) ? pt.c : pt.y;
-        if (val === null || val === undefined) return;
-        parts.push((ds.label || '') + ' ' + Number(val).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
-      });
-      if (parts.length) {
-        var text = parts.join('   ');
-        ctx.font = '11px sans-serif';
-        ctx.fillStyle = colMuted;
-        var tw = ctx.measureText(text).width;
-        var boxX = Math.min(Math.max(xPos + 6, chart.chartArea.left), chart.chartArea.right - tw - 4);
-        ctx.fillText(text, boxX, chart.chartArea.top + 12);
+  chart.subscribeCrosshairMove(function(param) {
+    if (syncingCrosshair) return;
+    syncingCrosshair = true;
+    syncGroup.forEach(function(other) {
+      if (other.chart === chart) return;
+      if (!param.time) {
+        other.chart.clearCrosshairPosition();
+      } else if (other.series) {
+        other.chart.setCrosshairPosition(0, param.time, other.series);
       }
-    }
-    ctx.restore();
-  }
-};
-Chart.register(crosshairPlugin);
-
-function scheduleCrosshairUpdate(timeMs) {
-  syncedTimeMs = timeMs;
-  crosshairActive = true;
-  if (rafPending) return;
-  rafPending = true;
-  requestAnimationFrame(function() {
-    getAllSyncCharts().forEach(function(chart) { chart.draw(); });
-    rafPending = false;
+    });
+    syncingCrosshair = false;
   });
+
+  chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
+    if (syncingRange || !range) return;
+    syncingRange = true;
+    syncGroup.forEach(function(other) {
+      if (other.chart !== chart) other.chart.timeScale().setVisibleLogicalRange(range);
+    });
+    syncingRange = false;
+  });
+
+  return entry;
 }
 
-function clearCrosshair() {
-  crosshairActive = false;
-  getAllSyncCharts().forEach(function(chart) { chart.draw(); });
+function fitAllCharts() {
+  syncGroup.forEach(function(entry) { entry.chart.timeScale().fitContent(); });
 }
 
-function attachCrosshairSync(canvasId) {
-  var canvas = document.getElementById(canvasId);
+/* ---------- main chart (candles / spot fallback + walls) ---------- */
 
-  function handleMove(clientX) {
-    var chart = Chart.getChart(canvas);
-    if (!chart || !chart.scales.x) return;
-    var rect = canvas.getBoundingClientRect();
-    var x = clientX - rect.left;
-    var timeMs = chart.scales.x.getValueForPixel(x);
-    if (timeMs === undefined || timeMs === null || isNaN(timeMs)) return;
-    scheduleCrosshairUpdate(timeMs);
+var mainEntry = null;
+var mainSeries = null;
+var callWallSeries = null;
+var putWallSeries = null;
+var usingCandlesCurrently = null;
+
+function ensureMainChart(usingCandles) {
+  if (mainEntry && usingCandlesCurrently === usingCandles) return;
+
+  if (mainEntry) {
+    mainEntry.chart.remove();
+    syncGroup = syncGroup.filter(function(e) { return e !== mainEntry; });
   }
 
-  canvas.addEventListener('mousemove', function(e) { handleMove(e.clientX); });
-  canvas.addEventListener('mouseleave', function() { if (!touchLocked) clearCrosshair(); });
+  usingCandlesCurrently = usingCandles;
 
-  canvas.addEventListener('touchstart', function(e) {
-    if (touchLocked) {
-      touchLocked = false;
-      clearCrosshair();
-      return;
-    }
-    var touch = e.touches[0];
-    var startX = touch.clientX;
-    touchTimer = setTimeout(function() {
-      touchLocked = true;
-      handleMove(startX);
-    }, 2000);
-  }, { passive: true });
+  mainEntry = createSyncedChart('mainChartWrap', 360);
+  var chart = mainEntry.chart;
 
-  canvas.addEventListener('touchmove', function(e) {
-    if (touchLocked) {
-      e.preventDefault();
-      handleMove(e.touches[0].clientX);
-    } else if (touchTimer) {
-      clearTimeout(touchTimer);
-      touchTimer = null;
-    }
-  }, { passive: false });
+  if (usingCandles) {
+    mainSeries = chart.addCandlestickSeries({ upColor: colAqua, downColor: colRed, borderUpColor: colAqua, borderDownColor: colRed, wickUpColor: colAqua, wickDownColor: colRed });
+  } else {
+    mainSeries = chart.addLineSeries({ color: colBlue, lineWidth: 2 });
+  }
+  mainEntry.series = mainSeries;
 
-  canvas.addEventListener('touchend', function() {
-    if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-  });
+  callWallSeries = chart.addLineSeries({ color: colRed, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lineType: LightweightCharts.LineType.WithSteps, visible: toggles.callWall, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  putWallSeries = chart.addLineSeries({ color: colAqua, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lineType: LightweightCharts.LineType.WithSteps, visible: toggles.putWall, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
 }
 
-syncCanvasIds.forEach(attachCrosshairSync);
+function buildMainChart() {
+  var usingCandles = ohlcRows.length > 0;
+  ensureMainChart(usingCandles);
+
+  document.getElementById('mainLegend').innerHTML =
+    (usingCandles
+      ? '<span><span class="swatch" style="background:' + colAqua + ';"></span>Nifty candles, teal up / red down</span>'
+      : '<span><span class="swatch" style="background:' + colBlue + ';"></span>Spot</span>') +
+    '<span><span class="swatch" style="background:' + colRed + ';"></span>Call wall, dashed</span>' +
+    '<span><span class="swatch" style="background:' + colAqua + ';"></span>Put wall, dotted</span>';
+
+  if (usingCandles) {
+    mainSeries.setData(ohlcRows.map(function(r) {
+      return { time: toEpochSeconds(r.candle_timestamp), open: r.open, high: r.high, low: r.low, close: r.close };
+    }));
+  } else {
+    mainSeries.setData(rows.filter(function(r){ return r.spot_price !== null && r.spot_price !== undefined; }).map(function(r) {
+      return { time: toEpochSeconds(r.snapshot_timestamp), value: r.spot_price };
+    }));
+  }
+
+  callWallSeries.setData(rows.filter(function(r){ return r.call_wall_strike !== null && r.call_wall_strike !== undefined; }).map(function(r) {
+    return { time: toEpochSeconds(r.snapshot_timestamp), value: r.call_wall_strike };
+  }));
+  putWallSeries.setData(rows.filter(function(r){ return r.put_wall_strike !== null && r.put_wall_strike !== undefined; }).map(function(r) {
+    return { time: toEpochSeconds(r.snapshot_timestamp), value: r.put_wall_strike };
+  }));
+
+  document.getElementById('ohlcFallbackNote').style.display = usingCandles ? 'none' : 'block';
+}
+
+/* ---------- ATM premium chart ---------- */
+
+var atmEntry = null, atmCallSeries = null, atmPutSeries = null;
+
+function buildAtmChart() {
+  if (!atmLegsAvailable) {
+    document.getElementById('atmUnavailableNote').style.display = 'block';
+    document.getElementById('atmChartWrap').style.display = 'none';
+    return;
+  }
+  document.getElementById('atmUnavailableNote').style.display = 'none';
+  document.getElementById('atmChartWrap').style.display = 'block';
+
+  if (!atmEntry) {
+    atmEntry = createSyncedChart('atmChartWrap', 180);
+    atmCallSeries = atmEntry.chart.addLineSeries({ color: colRed, lineWidth: 2, priceLineVisible: false });
+    atmPutSeries = atmEntry.chart.addLineSeries({ color: colAqua, lineWidth: 2, priceLineVisible: false });
+    atmEntry.series = atmCallSeries;
+  }
+
+  var callData = rows.filter(function(r){ return r.atm_ce_ltp !== null && r.atm_ce_ltp !== undefined; }).map(function(r) {
+    return { time: toEpochSeconds(r.snapshot_timestamp), value: r.atm_ce_ltp };
+  });
+  var putData = rows.filter(function(r){ return r.atm_pe_ltp !== null && r.atm_pe_ltp !== undefined; }).map(function(r) {
+    return { time: toEpochSeconds(r.snapshot_timestamp), value: r.atm_pe_ltp };
+  });
+  atmCallSeries.setData(callData);
+  atmPutSeries.setData(putData);
+
+  var rollMarkers = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i].atm_strike !== rows[i - 1].atm_strike) {
+      rollMarkers.push({ time: toEpochSeconds(rows[i].snapshot_timestamp), position: 'aboveBar', color: colMuted, shape: 'circle', text: 'Roll' });
+    }
+  }
+  atmCallSeries.setMarkers(rollMarkers);
+}
+
+/* ---------- OI velocity histogram panels ---------- */
+
+var velEntries = {};
+
+function ensureVelChart(containerId, key) {
+  if (velEntries[key]) return velEntries[key];
+  var entry = createSyncedChart(containerId, 130);
+  entry.series = entry.chart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+  velEntries[key] = entry;
+  return entry;
+}
+
+function buildVelChart(containerId, key) {
+  var entry = ensureVelChart(containerId, key);
+  var data = rows.filter(function(r){ return r[key] !== null && r[key] !== undefined; }).map(function(r) {
+    var v = r[key];
+    return { time: toEpochSeconds(r.snapshot_timestamp), value: v, color: v >= 0 ? colBlue : colRed };
+  });
+  entry.series.setData(data);
+}
+
+function renderCharts() {
+  buildMainChart();
+  buildAtmChart();
+  buildVelChart('callVelChartWrap', 'call_oi_velocity');
+  buildVelChart('putVelChartWrap', 'put_oi_velocity');
+  buildVelChart('netVelChartWrap', 'netVel');
+}
 
 /* ---------- data fetching ---------- */
 
@@ -382,179 +545,6 @@ function fetchOhlcRange(from, to) {
   }).catch(function() { return []; });
 }
 
-/* ---------- chart builders ---------- */
-
-function candlestickControllerReady() {
-  try {
-    Chart.registry.getController('candlestick');
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function buildMainChart() {
-  if (mainChart) mainChart.destroy();
-  var ctx = document.getElementById('mainChart');
-  var datasets = [];
-  var usingCandles = ohlcRows.length > 0 && candlestickControllerReady();
-
-  document.getElementById('mainLegend').innerHTML =
-    (usingCandles
-      ? '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colBlue + ';display:inline-block;"></span>Nifty candles, blue up / red down</span>'
-      : '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colBlue + ';display:inline-block;"></span>Spot</span>') +
-    '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colRed + ';display:inline-block;"></span>Call wall, dashed</span>' +
-    '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:' + colAqua + ';display:inline-block;"></span>Put wall, dotted</span>';
-
-  if (usingCandles) {
-    datasets.push({
-      label: 'Nifty',
-      type: 'candlestick',
-      data: ohlcRows.map(function(r) {
-        return { x: toIstMs(r.candle_timestamp), o: r.open, h: r.high, l: r.low, c: r.close };
-      }),
-      color: { up: colBlue, down: colRed, unchanged: colMuted }
-    });
-  } else {
-    datasets.push({
-      label: 'Spot',
-      type: 'line',
-      data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.spot_price }; }),
-      borderColor: colBlue, backgroundColor: colBlue, borderWidth: 2, pointRadius: 0, tension: 0.15
-    });
-  }
-
-  datasets.push({
-    label: 'Call wall', type: 'line',
-    data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.call_wall_strike }; }),
-    borderColor: colRed, backgroundColor: colRed, borderWidth: 1.5, borderDash: [6, 3], pointRadius: 0, stepped: true, hidden: !toggles.callWall
-  });
-  datasets.push({
-    label: 'Put wall', type: 'line',
-    data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.put_wall_strike }; }),
-    borderColor: colAqua, backgroundColor: colAqua, borderWidth: 1.5, borderDash: [2, 2], pointRadius: 0, stepped: true, hidden: !toggles.putWall
-  });
-
-  mainChart = new Chart(ctx, {
-    type: 'line',
-    data: { datasets: datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: { type: 'time', time: { tooltipFormat: 'dd LLL HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
-        y: { beginAtZero: false, ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
-      }
-    }
-  });
-
-  document.getElementById('ohlcFallbackNote').style.display = usingCandles ? 'none' : 'block';
-
-  if (usingCandles) {
-    requestAnimationFrame(function() {
-      var yMax = mainChart && mainChart.scales && mainChart.scales.y ? mainChart.scales.y.max : null;
-      if (!yMax || yMax < 1000) {
-        console.warn('Candlestick render looked broken (y max ' + yMax + '), falling back to spot line.');
-        ohlcRows = [];
-        buildMainChart();
-      }
-    });
-  }
-}
-
-function buildAtmChart() {
-  if (atmChart) atmChart.destroy();
-  if (!atmLegsAvailable) {
-    document.getElementById('atmUnavailableNote').style.display = 'block';
-    document.getElementById('atmChartWrap').style.display = 'none';
-    return;
-  }
-  document.getElementById('atmUnavailableNote').style.display = 'none';
-  document.getElementById('atmChartWrap').style.display = 'block';
-
-  var rollTimes = [];
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i].atm_strike !== rows[i - 1].atm_strike) rollTimes.push(toIstMs(rows[i].snapshot_timestamp));
-  }
-
-  var rollPlugin = {
-    id: 'rollMarkers',
-    afterDatasetsDraw: function(chart) {
-      var ctx2 = chart.ctx;
-      var xScale = chart.scales.x;
-      var top = chart.chartArea.top, bottom = chart.chartArea.bottom;
-      ctx2.save();
-      ctx2.strokeStyle = colMuted;
-      ctx2.setLineDash([2, 2]);
-      rollTimes.forEach(function(t) {
-        var xPos = xScale.getPixelForValue(t);
-        if (xPos < chart.chartArea.left || xPos > chart.chartArea.right) return;
-        ctx2.beginPath();
-        ctx2.moveTo(xPos, top);
-        ctx2.lineTo(xPos, bottom);
-        ctx2.stroke();
-      });
-      ctx2.restore();
-    }
-  };
-
-  var ctx = document.getElementById('atmChart');
-  atmChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      datasets: [
-        { label: 'ATM call', data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.atm_ce_ltp }; }), borderColor: colRed, backgroundColor: colRed, borderWidth: 2, pointRadius: 0 },
-        { label: 'ATM put', data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r.atm_pe_ltp }; }), borderColor: colAqua, backgroundColor: colAqua, borderWidth: 2, pointRadius: 0 }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: { type: 'time', time: { tooltipFormat: 'HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
-        y: { ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
-      }
-    },
-    plugins: [rollPlugin]
-  });
-}
-
-function buildVelChart(canvasId, key) {
-  var ctx = document.getElementById(canvasId);
-  return new Chart(ctx, {
-    type: 'bar',
-    data: {
-      datasets: [{
-        data: rows.map(function(r) { return { x: toIstMs(r.snapshot_timestamp), y: r[key] }; }),
-        backgroundColor: velColors(key),
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { intersect: false, mode: 'nearest', axis: 'x' },
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: { type: 'time', time: { tooltipFormat: 'HH:mm' }, ticks: { color: colMuted, font: { size: 11 } }, grid: { display: false } },
-        y: { ticks: { color: colMuted, font: { size: 11 } }, grid: { color: colGrid } }
-      }
-    }
-  });
-}
-
-function renderCharts() {
-  if (callVelChart) callVelChart.destroy();
-  if (putVelChart) putVelChart.destroy();
-  if (netVelChart) netVelChart.destroy();
-  buildMainChart();
-  buildAtmChart();
-  callVelChart = buildVelChart('callVelChart', 'call_oi_velocity');
-  putVelChart = buildVelChart('putVelChart', 'put_oi_velocity');
-  netVelChart = buildVelChart('netVelChart', 'netVel');
-}
-
 /* ---------- metrics and state ---------- */
 
 function updateMetrics() {
@@ -567,25 +557,26 @@ function updateMetrics() {
 
   var liveDot = document.getElementById('liveDot');
   var liveLabel = document.getElementById('liveLabel');
+  liveDot.classList.remove('liveDotPulse');
   if (latest && latest.snapshot_timestamp) {
     var t = toIstMs(latest.snapshot_timestamp);
     var diff = Date.now() - t;
     var mins = diff / 60000;
     if (mode === 'range') {
-      liveDot.style.background = 'var(--text-muted)';
+      liveDot.style.background = colMuted;
       liveLabel.textContent = 'Historical view';
-      liveLabel.style.color = 'var(--text-muted)';
+      liveLabel.style.color = colMuted;
     } else if (mins < 5) {
-      liveDot.style.background = '#0ca30c'; liveLabel.textContent = 'Live'; liveLabel.style.color = 'var(--text-success)';
+      liveDot.style.background = colAqua; liveDot.classList.add('liveDotPulse'); liveLabel.textContent = 'Live'; liveLabel.style.color = colAqua;
     } else if (mins < 30) {
-      liveDot.style.background = '#fab219'; liveLabel.textContent = 'Delayed'; liveLabel.style.color = 'var(--text-warning)';
+      liveDot.style.background = '#ff9800'; liveLabel.textContent = 'Delayed'; liveLabel.style.color = '#ff9800';
     } else {
-      liveDot.style.background = 'var(--text-muted)'; liveLabel.textContent = 'Stale, ' + fmtAgo(diff); liveLabel.style.color = 'var(--text-muted)';
+      liveDot.style.background = colMuted; liveLabel.textContent = 'Stale, ' + fmtAgo(diff); liveLabel.style.color = colMuted;
     }
   } else {
-    liveDot.style.background = 'var(--text-muted)';
+    liveDot.style.background = colMuted;
     liveLabel.textContent = 'No data';
-    liveLabel.style.color = 'var(--text-muted)';
+    liveLabel.style.color = colMuted;
   }
 }
 
@@ -605,7 +596,7 @@ function loadRange(from, to) {
   currentDate = to;
   document.getElementById('errorBox').style.display = 'none';
   document.getElementById('emptyBox').style.display = 'none';
-  document.getElementById('refreshIcon').style.animation = 'spin 0.8s linear infinite';
+  document.getElementById('refreshIcon').classList.add('spinning');
 
   Promise.all([fetchSnapshotsRange(from, to), fetchOhlcRange(from, to)])
     .then(function(results) {
@@ -624,7 +615,7 @@ function loadRange(from, to) {
     })
     .catch(handleError)
     .finally(function() {
-      document.getElementById('refreshIcon').style.animation = '';
+      document.getElementById('refreshIcon').classList.remove('spinning');
     });
 }
 
@@ -659,12 +650,10 @@ document.querySelectorAll('.toggleBtn').forEach(function(btn) {
     var key = btn.getAttribute('data-key');
     toggles[key] = !toggles[key];
     btn.classList.toggle('active');
-    if (key === 'callWall' && mainChart) {
-      mainChart.data.datasets[mainChart.data.datasets.length - 2].hidden = !toggles.callWall;
-      mainChart.update();
-    } else if (key === 'putWall' && mainChart) {
-      mainChart.data.datasets[mainChart.data.datasets.length - 1].hidden = !toggles.putWall;
-      mainChart.update();
+    if (key === 'callWall' && callWallSeries) {
+      callWallSeries.applyOptions({ visible: toggles.callWall });
+    } else if (key === 'putWall' && putWallSeries) {
+      putWallSeries.applyOptions({ visible: toggles.putWall });
     } else {
       updatePanelVisibility();
     }
@@ -672,6 +661,7 @@ document.querySelectorAll('.toggleBtn').forEach(function(btn) {
 });
 
 document.getElementById('refreshBtn').addEventListener('click', resolveDatesAndLoad);
+document.getElementById('fitBtn').addEventListener('click', fitAllCharts);
 
 document.getElementById('applyRangeBtn').addEventListener('click', function() {
   var f = document.getElementById('fromDate').value;
@@ -697,3 +687,5 @@ pollHandle = setInterval(resolveDatesAndLoad, 45000);
 setInterval(updateMetrics, 15000);
 
 </script>
+</body>
+</html>
