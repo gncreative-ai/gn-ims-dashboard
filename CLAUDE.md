@@ -36,7 +36,11 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 ## Toggle / preset system
 
 - **Two separate toggle rows**: "Overlays" (Group 1 → lines/band on the main chart) and "Panels" (Groups 2–4 + the existing velocity/ATM panels → whole panes below). Rows are generated from `overlayToggleDefs` / `panelToggleDefs`; a unified handler flips `toggles[key]`, applies the single effect, clears the active-preset highlight, and persists.
-- **Presets** (`presetDefs`): Structure, Momentum, Volatility, Everything. A preset sets its listed keys ON and every other toggle OFF (Everything = all on) via `applyPreset`. Presets are a convenience layer only — manual toggles keep working and deselect the preset chip.
+- **Presets** (`presetDefs`): a preset sets its listed keys ON and every other toggle OFF via `applyPreset`. Presets are a convenience layer only — manual toggles keep working and deselect the preset chip. Exact membership:
+  - **Structure**: Call Wall, Put Wall, 2nd Call Wall, 2nd Put Wall, Max Pain, Battleground, Expected-move band (panels off).
+  - **Momentum**: Call/Put/Net OI velocity, Net Delta, PCR panel.
+  - **Volatility**: ATM Straddle, ATM IV, IV Skew, GEX.
+  - **Everything**: all overlays + all panels on.
 - **Persistence**: the whole `toggles` object is saved to `localStorage` under `gnims_toggles_v1` (`saveToggles`/`loadToggles`), wrapped in try/catch so it degrades to in-memory state where storage is unavailable (e.g. an artifact sandbox). On the hosted GitHub Pages site, localStorage works normally.
 - **Default view is deliberately strict-minimal**: candles + Call Wall + Put Wall only. Everything else — including the pre-existing OI-velocity and ATM-premium panels — starts OFF on a clean first load (no saved state). This "which preset should be the default primary view" decision is intentionally deferred; do **not** auto-commit a preset as the default.
 
@@ -52,8 +56,10 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 
 ## Deployment
 
-- Hosted for free on GitHub Pages, serving directly from the repo root (`index.html`) — no build step, push to the tracked branch to update the live site.
-- Local dev/testing: `python -m http.server 8532` from the project root, then open `http://localhost:8532/index.html` (or the machine's LAN IP instead of `localhost` to test from a phone on the same Wi-Fi).
+- **Repo**: https://github.com/gncreative-ai/gn-ims-dashboard (public), default branch `main`.
+- **Live site**: https://gncreative-ai.github.io/gn-ims-dashboard/ — GitHub Pages served from the repo root (`index.html`) on `main`. No build step: `git push` to `main` updates the live site within ~30–60s.
+- **Public-repo security decision (deliberate)**: the repo is public and the Supabase anon key is exposed in `index.html` on purpose — RLS makes it read-only (see Data source). A login gate (Cloudflare Access, which would require hosting on Cloudflare Pages rather than GitHub Pages since Access can't front a `*.github.io` URL without a custom domain) was discussed and **intentionally deferred** — not forgotten. Revisit if the data ever becomes something worth gating.
+- **Local dev/testing**: `python -m http.server 8532` from the project root, then open `http://localhost:8532/index.html` (or the machine's LAN IP instead of `localhost` to test from a phone on the same Wi-Fi). A `.claude/launch.json` defines this server for the Claude Code preview tools.
 
 ## Working conventions
 
