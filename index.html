@@ -55,6 +55,8 @@ button{
 }
 button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 .toggleBtn.active{background:rgba(41,98,255,0.14);color:var(--accent-blue);border-color:var(--accent-blue);}
+.presetBtn{font-weight:500;}
+.presetBtn.active{background:rgba(255,152,0,0.16);color:var(--warn);border-color:var(--warn);}
 #refreshBtn{display:flex;align-items:center;gap:6px;margin-left:auto;}
 #fitBtn{display:flex;align-items:center;gap:6px;}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -86,10 +88,14 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 @keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(38,166,154,0.55);}70%{box-shadow:0 0 0 6px rgba(38,166,154,0);}100%{box-shadow:0 0 0 0 rgba(38,166,154,0);}}
 .liveDotPulse{animation:livePulse 1.8s ease-out infinite;}
 
-.toggleRow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.presetRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;}
+.toggleSection{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;}
+.toggleRow{display:flex;flex-wrap:wrap;gap:8px;}
+.rowLabel{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;min-width:64px;}
 
 .panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
 .panel .panelTitle{font-size:13px;color:var(--text-secondary);margin:0 0 8px;font-weight:500;}
+.panel .panelTitle .unit{font-size:11px;color:var(--text-muted);font-weight:400;margin-left:4px;}
 .legend{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:8px;font-size:12px;color:var(--text-secondary);}
 .legend .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle;}
 .chartWrap{position:relative;width:100%;}
@@ -108,7 +114,7 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 </head>
 <body>
 <div class="app">
-<h2 class="sr-only">Live options flow dashboard showing Nifty spot price, candles, call and put wall levels, rolling ATM call and put premium, and open interest velocity for calls and puts, with a date range selector and synced crosshair across all charts.</h2>
+<h2 class="sr-only">Live options flow dashboard showing Nifty spot price candles with configurable strike overlays (walls, max pain, gamma flip, expected-move band and more) and configurable analytics panels for ratios, premiums, Greeks and gamma exposure, with a date range selector and synced crosshair across all charts.</h2>
 
 <header class="topbar">
   <span class="title"><span class="dot"></span>Nifty 50 Options Flow</span>
@@ -171,21 +177,26 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
   </div>
 </div>
 
-<div class="toggleRow">
-  <button class="toggleBtn" data-key="callWall">Call wall</button>
-  <button class="toggleBtn" data-key="putWall">Put wall</button>
-  <button class="toggleBtn" data-key="callVel">Call OI velocity</button>
-  <button class="toggleBtn" data-key="putVel">Put OI velocity</button>
-  <button class="toggleBtn" data-key="netVel">Net OI velocity</button>
-  <button class="toggleBtn" data-key="atmLegs">ATM call and put</button>
+<div class="presetRow" id="presetRow">
+  <span class="rowLabel">Presets</span>
 </div>
 
-<p class="hint" style="margin:0 0 8px;">Scroll to zoom, drag to pan, hover for the shared crosshair. Pan/zoom position is preserved across live refreshes.</p>
+<div class="toggleSection">
+  <span class="rowLabel">Overlays</span>
+  <div class="toggleRow" id="overlaysRow"></div>
+</div>
+
+<div class="toggleSection">
+  <span class="rowLabel">Panels</span>
+  <div class="toggleRow" id="panelsRow"></div>
+</div>
+
+<p class="hint" style="margin:2px 0 8px;">Overlays draw on the main price chart (shared price scale). Panels appear as separate synced strips below. Scroll to zoom, drag to pan, hover (or tap on mobile) for the shared crosshair. Your selection is remembered on this device.</p>
 
 <div class="panel">
-  <p class="panelTitle">Nifty price with dynamic walls</p>
+  <p class="panelTitle">Nifty price with dynamic walls &amp; overlays</p>
   <div class="legend" id="mainLegend"></div>
-  <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with call wall and put wall overlay lines through the selected range"></div>
+  <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with configurable strike overlays"></div>
   <p id="ohlcFallbackNote" class="fallbackNote">No OHLC candle data for this range yet, showing spot price instead.</p>
 </div>
 
@@ -213,6 +224,8 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
   <div class="chartWrap" id="netVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval"></div>
 </div>
 
+<div id="dynamicPanels"></div>
+
 <div class="setupPanel">
   <div class="head">
     <p>Setup signal</p>
@@ -237,6 +250,7 @@ var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 var REST = SUPABASE_URL + "/rest/v1";
 var HEADERS = { apikey: ANON_KEY, Authorization: "Bearer " + ANON_KEY };
 
+/* ---------- palette ---------- */
 var colBlue = '#2962ff';
 var colRed = '#ef5350';
 var colAqua = '#26a69a';
@@ -244,8 +258,135 @@ var colMuted = '#5d606b';
 var colGrid = '#232632';
 var colBorder = '#2a2e39';
 var colText = '#9598a1';
+var colViolet = '#ab47bc';
+var colYellow = '#ffca28';
+var colOrange = '#ff7043';
+var colSlate = '#90a4ae';
+var colAquaLt = '#80cbc4';
+var colRedLt = '#ff8a80';
+var colBlueLt = '#42a5f5';
 
-var toggles = { callWall: true, putWall: true, callVel: true, putVel: true, netVel: true, atmLegs: true };
+/* ---------- metric registry ----------
+   GROUP 1 overlays render on the main price chart (shared price scale).
+   Call wall / put wall stay as their own dedicated series (unchanged) and are
+   listed in overlayToggleDefs but built separately below. The band is special. */
+
+var overlayLineDefs = [
+  { key:'callWall2',    col:'call_wall_2_strike',      color:colRedLt,  style:'Dashed', stepped:true },
+  { key:'putWall2',     col:'put_wall_2_strike',       color:colAquaLt, style:'Dotted', stepped:true },
+  { key:'maxPain',      col:'max_pain_strike',         color:colYellow, style:'Solid',  stepped:true },
+  { key:'gammaFlip',    col:'gamma_flip_strike',       color:colViolet, style:'Dashed', stepped:true },
+  { key:'oiWavg',       col:'oi_weighted_avg_strike',  color:colBlueLt, style:'Solid',  stepped:false },
+  { key:'battleground', col:'battleground_strike',     color:colOrange, style:'Solid',  stepped:true },
+  { key:'futures',      col:'futures_price',           color:colSlate,  style:'Solid',  stepped:false }
+];
+
+var overlayToggleDefs = [
+  { key:'callWall',  label:'Call wall' },
+  { key:'putWall',   label:'Put wall' },
+  { key:'callWall2', label:'2nd Call wall' },
+  { key:'putWall2',  label:'2nd Put wall' },
+  { key:'maxPain',   label:'Max pain' },
+  { key:'gammaFlip', label:'Gamma flip' },
+  { key:'oiWavg',    label:'OI-wtd avg strike' },
+  { key:'battleground', label:'Battleground' },
+  { key:'futures',   label:'Futures' },
+  { key:'expMove',   label:'Expected-move band' }
+];
+
+/* GROUP 2 ratio/oscillator panels, GROUP 3 premium/count panels, GROUP 4 GEX.
+   Each panel builds its own synced Lightweight Charts pane below the main chart. */
+var panelsConfig = [
+  /* Group 2 */
+  { key:'pcr', title:'PCR — OI &amp; Volume', height:140,
+    series:[ {label:'PCR OI', col:'pcr_oi', color:colBlue}, {label:'PCR Volume', col:'pcr_volume', color:colAqua} ],
+    refLines:[{price:1.0, label:'1.0'}] },
+  { key:'ivSkew', title:'IV skew', height:130,
+    series:[ {label:'IV skew', col:'iv_skew', color:colViolet} ], refLines:[{price:0, label:'0'}] },
+  { key:'riskReversal', title:'Risk reversal', height:130,
+    series:[ {label:'Risk reversal', col:'risk_reversal', color:colOrange} ], refLines:[{price:0, label:'0'}] },
+  { key:'netDelta', title:'Net delta', height:130,
+    series:[ {label:'Net delta', col:'net_delta', color:colBlue} ], refLines:[{price:0, label:'0'}] },
+  { key:'netGamma', title:'Net gamma', height:130,
+    series:[ {label:'Net gamma', col:'net_gamma', color:colAqua} ], refLines:[{price:0, label:'0'}] },
+  { key:'oiConcentration', title:'OI concentration ratio', height:130,
+    series:[ {label:'OI concentration', col:'oi_concentration_ratio', color:colYellow} ], fixedRange:{min:0, max:1} },
+  { key:'spotDistMaxPain', title:'Spot distance from max pain', height:130,
+    series:[ {label:'Distance', col:'spot_dist_from_max_pain', color:colOrange} ], refLines:[{price:0, label:'0'}] },
+  { key:'aggTheta', title:'Aggregate theta', height:130,
+    series:[ {label:'Theta', col:'aggregate_theta', color:colRed} ] },
+  { key:'aggVega', title:'Aggregate vega', height:130,
+    series:[ {label:'Vega', col:'aggregate_vega', color:colBlue} ] },
+  /* Group 3 */
+  { key:'atmStraddle', title:'ATM straddle price', unit:'&#8377;', height:140,
+    series:[ {label:'ATM straddle', col:'atm_straddle_price', color:colViolet} ] },
+  { key:'atmIv', title:'ATM implied volatility', unit:'%', height:140,
+    series:[ {label:'ATM IV call', col:'atm_iv_call', color:colRed}, {label:'ATM IV put', col:'atm_iv_put', color:colAqua} ] },
+  { key:'basis', title:'Basis (futures &minus; spot)', unit:'&#8377;', height:130,
+    series:[ {label:'Basis', col:'basis', color:colBlue} ], refLines:[{price:0, label:'0'}] },
+  { key:'totalOi', title:'Total OI — call &amp; put', unit:'contracts', height:140,
+    series:[ {label:'Total call OI', col:'total_call_oi', color:colRed}, {label:'Total put OI', col:'total_put_oi', color:colAqua} ] },
+  /* Group 4 */
+  { key:'gex', title:'GEX total', unit:'&times;10&#8313; (billions)', height:150,
+    series:[ {label:'GEX total', col:'gex_total', color:colViolet, transform:function(v){ return v / 1e9; }} ] }
+];
+
+var panelToggleDefs = [
+  { key:'callVel', label:'Call OI velocity' },
+  { key:'putVel',  label:'Put OI velocity' },
+  { key:'netVel',  label:'Net OI velocity' },
+  { key:'atmLegs', label:'ATM call &amp; put' },
+  { key:'pcr',            label:'PCR (OI &amp; Vol)' },
+  { key:'ivSkew',         label:'IV skew' },
+  { key:'riskReversal',   label:'Risk reversal' },
+  { key:'netDelta',       label:'Net delta' },
+  { key:'netGamma',       label:'Net gamma' },
+  { key:'oiConcentration',label:'OI concentration' },
+  { key:'spotDistMaxPain',label:'Spot vs max pain' },
+  { key:'aggTheta',       label:'Aggregate theta' },
+  { key:'aggVega',        label:'Aggregate vega' },
+  { key:'atmStraddle',    label:'ATM straddle' },
+  { key:'atmIv',          label:'ATM IV' },
+  { key:'basis',          label:'Basis' },
+  { key:'totalOi',        label:'Total OI' },
+  { key:'gex',            label:'GEX' }
+];
+
+var panelByKey = {};
+panelsConfig.forEach(function(c){ panelByKey[c.key] = c; });
+
+var allToggleKeys = overlayToggleDefs.map(function(d){ return d.key; })
+  .concat(panelToggleDefs.map(function(d){ return d.key; }));
+
+/* Preset definitions: applying a preset turns its listed keys ON and every
+   other toggle OFF (Everything = all on). Presets are a convenience layer;
+   manual toggles keep working and clear the active-preset highlight. */
+var presetDefs = [
+  { name:'structure',  label:'Structure',  keys:['callWall','putWall','callWall2','putWall2','maxPain','battleground','expMove'] },
+  { name:'momentum',   label:'Momentum',   keys:['callVel','putVel','netVel','netDelta','pcr'] },
+  { name:'volatility', label:'Volatility', keys:['atmStraddle','atmIv','ivSkew','gex'] },
+  { name:'everything', label:'Everything', keys:allToggleKeys.slice() }
+];
+
+/* ---------- toggle state (default: strict minimal = candles + walls only) ---------- */
+var STORAGE_KEY = 'gnims_toggles_v1';
+var toggles = {};
+allToggleKeys.forEach(function(k){ toggles[k] = false; });
+toggles.callWall = true;
+toggles.putWall = true;
+
+function loadToggles() {
+  try {
+    var raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    var saved = JSON.parse(raw);
+    allToggleKeys.forEach(function(k){ if (typeof saved[k] === 'boolean') toggles[k] = saved[k]; });
+  } catch (e) { /* localStorage unavailable (e.g. artifact sandbox) -> in-memory defaults */ }
+}
+function saveToggles() {
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toggles)); } catch (e) {}
+}
+
 var mode = 'live';
 var rangeFrom = null, rangeTo = null;
 var pollHandle = null;
@@ -321,9 +462,9 @@ function updateMarketStatus() {
   }
 }
 
-/* ---------- chart engine: TradingView Lightweight Charts, shared across all 5 panels ---------- */
+/* ---------- chart engine: TradingView Lightweight Charts, all panes synced ---------- */
 
-var syncGroup = []; // [{ chart, series, resizeObserver }]
+var syncGroup = []; // [{ chart, series, container }]
 var syncingCrosshair = false;
 var syncingRange = false;
 
@@ -387,12 +528,85 @@ function fitAllCharts() {
   syncGroup.forEach(function(entry) { entry.chart.timeScale().fitContent(); });
 }
 
-/* ---------- main chart (candles / spot fallback + walls) ---------- */
+function currentVisibleRange() {
+  return mainEntry ? mainEntry.chart.timeScale().getVisibleLogicalRange() : null;
+}
+function applyCurrentRange(entry) {
+  if (!entry || !mainEntry || entry === mainEntry) return;
+  var r = currentVisibleRange();
+  if (r) { try { entry.chart.timeScale().setVisibleLogicalRange(r); } catch (e) {} }
+}
+function resizeEntry(entry, containerId) {
+  var c = document.getElementById(containerId);
+  if (entry && c && c.clientWidth > 0) entry.chart.applyOptions({ width: c.clientWidth });
+}
+
+/* ---------- expected-move band: custom series primitive (true shaded fill) ---------- */
+
+function createBandPrimitive() {
+  var data = [];          // [{ time, upper, lower }]
+  var chart = null, series = null, requestUpdate = null;
+  var visible = false;
+
+  var renderer = {
+    draw: function(target) {
+      if (!visible || !chart || !series || data.length < 2) return;
+      var ts = chart.timeScale();
+      target.useMediaCoordinateSpace(function(scope) {
+        var ctx = scope.context;
+        var top = [], bot = [];
+        for (var i = 0; i < data.length; i++) {
+          var x = ts.timeToCoordinate(data[i].time);
+          var yu = series.priceToCoordinate(data[i].upper);
+          var yl = series.priceToCoordinate(data[i].lower);
+          if (x === null || yu === null || yl === null) continue;
+          top.push({ x: x, y: yu });
+          bot.push({ x: x, y: yl });
+        }
+        if (top.length < 2) return;
+        ctx.beginPath();
+        ctx.moveTo(top[0].x, top[0].y);
+        for (var j = 1; j < top.length; j++) ctx.lineTo(top[j].x, top[j].y);
+        for (var k = bot.length - 1; k >= 0; k--) ctx.lineTo(bot[k].x, bot[k].y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(41,98,255,0.10)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(41,98,255,0.38)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(top[0].x, top[0].y);
+        for (var a = 1; a < top.length; a++) ctx.lineTo(top[a].x, top[a].y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(bot[0].x, bot[0].y);
+        for (var b = 1; b < bot.length; b++) ctx.lineTo(bot[b].x, bot[b].y);
+        ctx.stroke();
+      });
+    }
+  };
+  var paneView = {
+    renderer: function() { return renderer; },
+    zOrder: function() { return 'bottom'; }
+  };
+
+  return {
+    attached: function(p) { chart = p.chart; series = p.series; requestUpdate = p.requestUpdate; },
+    detached: function() { chart = null; series = null; requestUpdate = null; },
+    updateAllViews: function() {},
+    paneViews: function() { return [paneView]; },
+    setData: function(d) { data = d; if (requestUpdate) requestUpdate(); },
+    setVisible: function(v) { visible = v; if (requestUpdate) requestUpdate(); }
+  };
+}
+
+/* ---------- main chart (candles / spot fallback + walls + overlays + band) ---------- */
 
 var mainEntry = null;
 var mainSeries = null;
 var callWallSeries = null;
 var putWallSeries = null;
+var overlaySeries = {};   // key -> line series (Group 1 lines)
+var bandPrimitive = null;
 var usingCandlesCurrently = null;
 
 function ensureMainChart(usingCandles) {
@@ -402,7 +616,7 @@ function ensureMainChart(usingCandles) {
     mainEntry.chart.remove();
     syncGroup = syncGroup.filter(function(e) { return e !== mainEntry; });
   }
-
+  overlaySeries = {};
   usingCandlesCurrently = usingCandles;
 
   mainEntry = createSyncedChart('mainChartWrap', 360);
@@ -417,6 +631,18 @@ function ensureMainChart(usingCandles) {
 
   callWallSeries = chart.addLineSeries({ color: colRed, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lineType: LightweightCharts.LineType.WithSteps, visible: toggles.callWall, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
   putWallSeries = chart.addLineSeries({ color: colAqua, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lineType: LightweightCharts.LineType.WithSteps, visible: toggles.putWall, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+
+  overlayLineDefs.forEach(function(d) {
+    overlaySeries[d.key] = chart.addLineSeries({
+      color: d.color, lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle[d.style],
+      lineType: d.stepped ? LightweightCharts.LineType.WithSteps : LightweightCharts.LineType.Simple,
+      visible: toggles[d.key], priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+    });
+  });
+
+  bandPrimitive = createBandPrimitive();
+  mainSeries.attachPrimitive(bandPrimitive);
 }
 
 function buildMainChart() {
@@ -428,7 +654,8 @@ function buildMainChart() {
       ? '<span><span class="swatch" style="background:' + colAqua + ';"></span>Nifty candles, teal up / red down</span>'
       : '<span><span class="swatch" style="background:' + colBlue + ';"></span>Spot</span>') +
     '<span><span class="swatch" style="background:' + colRed + ';"></span>Call wall, dashed</span>' +
-    '<span><span class="swatch" style="background:' + colAqua + ';"></span>Put wall, dotted</span>';
+    '<span><span class="swatch" style="background:' + colAqua + ';"></span>Put wall, dotted</span>' +
+    '<span style="color:var(--text-muted);">Extra overlays via the Overlays toggles above</span>';
 
   if (usingCandles) {
     mainSeries.setData(ohlcRows.map(function(r) {
@@ -447,10 +674,23 @@ function buildMainChart() {
     return { time: toEpochSeconds(r.snapshot_timestamp), value: r.put_wall_strike };
   }));
 
+  overlayLineDefs.forEach(function(d) {
+    overlaySeries[d.key].setData(rows.filter(function(r){ return r[d.col] !== null && r[d.col] !== undefined; }).map(function(r) {
+      return { time: toEpochSeconds(r.snapshot_timestamp), value: r[d.col] };
+    }));
+  });
+
+  var bandData = rows.filter(function(r){
+    return r.spot_price !== null && r.spot_price !== undefined && r.atm_straddle_price !== null && r.atm_straddle_price !== undefined;
+  }).map(function(r) {
+    return { time: toEpochSeconds(r.snapshot_timestamp), upper: r.spot_price + r.atm_straddle_price, lower: r.spot_price - r.atm_straddle_price };
+  });
+  bandPrimitive.setData(bandData);
+
   document.getElementById('ohlcFallbackNote').style.display = usingCandles ? 'none' : 'block';
 }
 
-/* ---------- ATM premium chart ---------- */
+/* ---------- existing ATM premium chart (unchanged behavior) ---------- */
 
 var atmEntry = null, atmCallSeries = null, atmPutSeries = null;
 
@@ -488,7 +728,7 @@ function buildAtmChart() {
   atmCallSeries.setMarkers(rollMarkers);
 }
 
-/* ---------- OI velocity histogram panels ---------- */
+/* ---------- existing OI velocity histogram panels (unchanged behavior) ---------- */
 
 var velEntries = {};
 
@@ -509,6 +749,70 @@ function buildVelChart(containerId, key) {
   entry.series.setData(data);
 }
 
+/* ---------- new configurable panels (Groups 2-4), lazily created on first show ---------- */
+
+function buildPanelsDOM() {
+  var host = document.getElementById('dynamicPanels');
+  panelsConfig.forEach(function(cfg) {
+    var div = document.createElement('div');
+    div.className = 'panel';
+    div.id = 'panelWrap_' + cfg.key;
+    div.style.display = 'none';
+    var unit = cfg.unit ? ' <span class="unit">' + cfg.unit + '</span>' : '';
+    var legend = cfg.series.map(function(s) {
+      return '<span><span class="swatch" style="background:' + s.color + ';"></span>' + s.label + '</span>';
+    }).join('');
+    div.innerHTML =
+      '<p class="panelTitle">' + cfg.title + unit + '</p>' +
+      '<div class="legend">' + legend + '</div>' +
+      '<p class="fallbackNote" id="note_' + cfg.key + '">Not available yet. This metric has no data in the selected range (the source column may not exist in Supabase yet).</p>' +
+      '<div class="chartWrap" id="chart_' + cfg.key + '" style="height:' + (cfg.height || 130) + 'px;"></div>';
+    host.appendChild(div);
+  });
+}
+
+function ensurePanel(cfg) {
+  if (cfg._entry) return;
+  cfg._entry = createSyncedChart('chart_' + cfg.key, cfg.height || 130);
+  cfg.series.forEach(function(s) {
+    s._series = cfg._entry.chart.addLineSeries({ color: s.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
+  });
+  cfg._entry.series = cfg.series[0]._series;
+  if (cfg.fixedRange) {
+    cfg.series[0]._series.applyOptions({
+      autoscaleInfoProvider: function() { return { priceRange: { minValue: cfg.fixedRange.min, maxValue: cfg.fixedRange.max } }; }
+    });
+  }
+  (cfg.refLines || []).forEach(function(rl) {
+    cfg.series[0]._series.createPriceLine({
+      price: rl.price, color: colMuted, lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: rl.label
+    });
+  });
+}
+
+function renderPanel(cfg) {
+  var wrap = document.getElementById('panelWrap_' + cfg.key);
+  if (!toggles[cfg.key]) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  ensurePanel(cfg);
+
+  var hasData = false;
+  cfg.series.forEach(function(s) {
+    var data = rows.filter(function(r){ return r[s.col] !== null && r[s.col] !== undefined; }).map(function(r) {
+      return { time: toEpochSeconds(r.snapshot_timestamp), value: s.transform ? s.transform(r[s.col]) : r[s.col] };
+    });
+    if (data.length) hasData = true;
+    s._series.setData(data);
+  });
+
+  document.getElementById('note_' + cfg.key).style.display = hasData ? 'none' : 'block';
+  document.getElementById('chart_' + cfg.key).style.display = hasData ? 'block' : 'none';
+  if (hasData) { resizeEntry(cfg._entry, 'chart_' + cfg.key); applyCurrentRange(cfg._entry); }
+}
+
+/* ---------- orchestration ---------- */
+
 function renderCharts() {
   buildMainChart();
   buildAtmChart();
@@ -517,23 +821,111 @@ function renderCharts() {
   buildVelChart('netVelChartWrap', 'netVel');
 }
 
-/* ---------- data fetching ---------- */
+function updatePanelVisibility() {
+  setExistingPanel('panelCallVel', 'callVel', velEntries['call_oi_velocity'], 'callVelChartWrap');
+  setExistingPanel('panelPutVel', 'putVel', velEntries['put_oi_velocity'], 'putVelChartWrap');
+  setExistingPanel('panelNetVel', 'netVel', velEntries['netVel'], 'netVelChartWrap');
+
+  var atmOn = toggles.atmLegs;
+  document.getElementById('panelAtm').style.display = atmOn ? 'block' : 'none';
+  if (atmOn && atmEntry) { resizeEntry(atmEntry, 'atmChartWrap'); applyCurrentRange(atmEntry); }
+}
+function setExistingPanel(panelId, key, entry, containerId) {
+  var on = toggles[key];
+  document.getElementById(panelId).style.display = on ? 'block' : 'none';
+  if (on && entry) { resizeEntry(entry, containerId); applyCurrentRange(entry); }
+}
+
+/* Apply the full toggle state to the DOM/charts (overlay visibility + panels). */
+function applyAllToggleEffects() {
+  if (callWallSeries) callWallSeries.applyOptions({ visible: toggles.callWall });
+  if (putWallSeries) putWallSeries.applyOptions({ visible: toggles.putWall });
+  if (bandPrimitive) bandPrimitive.setVisible(toggles.expMove);
+  overlayLineDefs.forEach(function(d) {
+    if (overlaySeries[d.key]) overlaySeries[d.key].applyOptions({ visible: toggles[d.key] });
+  });
+  updatePanelVisibility();
+  panelsConfig.forEach(function(cfg) { renderPanel(cfg); });
+  syncButtonStates();
+}
+
+/* Apply the effect of a single toggle key (used on individual button clicks). */
+function applyToggleEffect(key) {
+  if (key === 'callWall') { if (callWallSeries) callWallSeries.applyOptions({ visible: toggles.callWall }); return; }
+  if (key === 'putWall') { if (putWallSeries) putWallSeries.applyOptions({ visible: toggles.putWall }); return; }
+  if (key === 'expMove') { if (bandPrimitive) bandPrimitive.setVisible(toggles.expMove); return; }
+  if (overlaySeries[key] !== undefined) { if (overlaySeries[key]) overlaySeries[key].applyOptions({ visible: toggles[key] }); return; }
+  if (['callVel', 'putVel', 'netVel', 'atmLegs'].indexOf(key) >= 0) { updatePanelVisibility(); return; }
+  if (panelByKey[key]) { renderPanel(panelByKey[key]); return; }
+}
+
+/* ---------- toggle / preset UI ---------- */
+
+function mkToggleBtn(def) {
+  var b = document.createElement('button');
+  b.className = 'toggleBtn';
+  b.innerHTML = def.label;
+  b.setAttribute('data-key', def.key);
+  if (toggles[def.key]) b.classList.add('active');
+  b.addEventListener('click', function() {
+    toggles[def.key] = !toggles[def.key];
+    b.classList.toggle('active', toggles[def.key]);
+    applyToggleEffect(def.key);
+    clearActivePreset();
+    saveToggles();
+  });
+  return b;
+}
+
+function buildControls() {
+  var oRow = document.getElementById('overlaysRow');
+  overlayToggleDefs.forEach(function(d) { oRow.appendChild(mkToggleBtn(d)); });
+  var pRow = document.getElementById('panelsRow');
+  panelToggleDefs.forEach(function(d) { pRow.appendChild(mkToggleBtn(d)); });
+
+  var prRow = document.getElementById('presetRow');
+  presetDefs.forEach(function(p) {
+    var b = document.createElement('button');
+    b.className = 'presetBtn';
+    b.textContent = p.label;
+    b.setAttribute('data-preset', p.name);
+    b.addEventListener('click', function() { applyPreset(p.name); });
+    prRow.appendChild(b);
+  });
+}
+
+function syncButtonStates() {
+  document.querySelectorAll('.toggleBtn').forEach(function(btn) {
+    var key = btn.getAttribute('data-key');
+    btn.classList.toggle('active', !!toggles[key]);
+  });
+}
+
+function setActivePreset(name) {
+  document.querySelectorAll('.presetBtn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-preset') === name);
+  });
+}
+function clearActivePreset() {
+  document.querySelectorAll('.presetBtn').forEach(function(btn) { btn.classList.remove('active'); });
+}
+
+function applyPreset(name) {
+  var def = null;
+  presetDefs.forEach(function(p) { if (p.name === name) def = p; });
+  if (!def) return;
+  allToggleKeys.forEach(function(k) { toggles[k] = def.keys.indexOf(k) >= 0; });
+  applyAllToggleEffects();
+  setActivePreset(name);
+  saveToggles();
+}
+
+/* ---------- data fetching (select=* so incremental new columns never 400 the query) ---------- */
 
 function fetchSnapshotsRange(from, to) {
-  var fullSelect = 'snapshot_date,snapshot_time,snapshot_timestamp,spot_price,call_wall_strike,put_wall_strike,call_oi_velocity,put_oi_velocity,pcr_oi,atm_straddle_price,atm_strike,atm_ce_ltp,atm_pe_ltp';
-  var basicSelect = 'snapshot_date,snapshot_time,snapshot_timestamp,spot_price,call_wall_strike,put_wall_strike,call_oi_velocity,put_oi_velocity,pcr_oi,atm_straddle_price,atm_strike';
-  var url = REST + '/options_snapshots?select=' + fullSelect + '&snapshot_date=gte.' + from + '&snapshot_date=lte.' + to + '&order=snapshot_timestamp.asc';
+  var url = REST + '/options_snapshots?select=*&snapshot_date=gte.' + from + '&snapshot_date=lte.' + to + '&order=snapshot_timestamp.asc';
   return fetch(url, { headers: HEADERS }).then(function(res) {
-    if (res.status === 400) {
-      atmLegsAvailable = false;
-      var url2 = REST + '/options_snapshots?select=' + basicSelect + '&snapshot_date=gte.' + from + '&snapshot_date=lte.' + to + '&order=snapshot_timestamp.asc';
-      return fetch(url2, { headers: HEADERS }).then(function(res2) {
-        if (!res2.ok) throw new Error('Snapshots fetch failed, HTTP ' + res2.status + '.');
-        return res2.json();
-      });
-    }
     if (!res.ok) throw new Error('Snapshots fetch failed, HTTP ' + res.status + '. Check RLS select policy is enabled.');
-    atmLegsAvailable = true;
     return res.json();
   });
 }
@@ -581,13 +973,6 @@ function updateMetrics() {
   }
 }
 
-function updatePanelVisibility() {
-  document.getElementById('panelCallVel').style.display = toggles.callVel ? 'block' : 'none';
-  document.getElementById('panelPutVel').style.display = toggles.putVel ? 'block' : 'none';
-  document.getElementById('panelNetVel').style.display = toggles.netVel ? 'block' : 'none';
-  document.getElementById('panelAtm').style.display = toggles.atmLegs ? 'block' : 'none';
-}
-
 function handleError(e) {
   document.getElementById('errorMsg').textContent = (e && e.message) || 'Unknown error';
   document.getElementById('errorBox').style.display = 'block';
@@ -608,10 +993,11 @@ function loadRange(from, to) {
         return r;
       });
       ohlcRows = results[1];
+      atmLegsAvailable = rows.some(function(r){ return r.atm_ce_ltp !== null && r.atm_ce_ltp !== undefined; });
       if (!rows.length) document.getElementById('emptyBox').style.display = 'block';
       renderCharts();
+      applyAllToggleEffects();
       updateMetrics();
-      updatePanelVisibility();
       document.getElementById('lastSync').textContent = 'Last synced ' + new Date().toLocaleTimeString();
     })
     .catch(handleError)
@@ -645,21 +1031,7 @@ function resolveDatesAndLoad() {
   }
 }
 
-document.querySelectorAll('.toggleBtn').forEach(function(btn) {
-  if (toggles[btn.getAttribute('data-key')]) btn.classList.add('active');
-  btn.addEventListener('click', function() {
-    var key = btn.getAttribute('data-key');
-    toggles[key] = !toggles[key];
-    btn.classList.toggle('active');
-    if (key === 'callWall' && callWallSeries) {
-      callWallSeries.applyOptions({ visible: toggles.callWall });
-    } else if (key === 'putWall' && putWallSeries) {
-      putWallSeries.applyOptions({ visible: toggles.putWall });
-    } else {
-      updatePanelVisibility();
-    }
-  });
-});
+/* ---------- wiring ---------- */
 
 document.getElementById('refreshBtn').addEventListener('click', resolveDatesAndLoad);
 document.getElementById('fitBtn').addEventListener('click', fitAllCharts);
@@ -682,6 +1054,13 @@ document.getElementById('backToLiveBtn').addEventListener('click', function() {
   resolveDatesAndLoad();
   pollHandle = setInterval(resolveDatesAndLoad, 45000);
 });
+
+/* ---------- init ---------- */
+
+loadToggles();
+buildControls();
+buildPanelsDOM();
+syncButtonStates();
 
 resolveDatesAndLoad();
 pollHandle = setInterval(resolveDatesAndLoad, 45000);
