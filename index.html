@@ -125,12 +125,25 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 .disclaimer{font-size:11px;color:var(--text-muted);margin:16px 20px 0;line-height:1.5;font-style:italic;}
 
 .setupPanel{background:var(--bg-panel-alt);border:1px solid var(--border);border-radius:12px;padding:16px 20px;}
-.setupPanel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.setupPanel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;}
 .setupPanel .head p{font-size:15px;font-weight:500;margin:0;}
-.setupPanel .badge{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--bg-inset);color:var(--text-muted);}
+.setupPanel .badge{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--bg-inset);color:var(--text-muted);flex:none;}
+.setupPanel .badge.badgeOk{background:rgba(38,166,154,0.16);color:var(--up);}
+.setupPanel .badge.badgeFail{background:var(--danger-bg);color:var(--down);}
 .setupRow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;}
 .setupRow span:first-child{color:var(--text-secondary);}
 .setupPanel .footNote{font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;}
+.setupPanelSmall{padding:10px 14px;margin-bottom:8px;}
+.setupPanelSmall .head{margin-bottom:8px;}
+.setupPanelSmall .head p{font-size:13px;}
+.setupPanelSmall .setupRow{font-size:12px;padding:2px 0;}
+.setupPanelSmall .footNote{font-size:11px;margin-top:8px;}
+#setupHistoryList .setupPanelSmall:last-child{margin-bottom:0;}
+.indicatorControls{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px;}
+.indicatorControls label.indChk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;}
+.indicatorControls .lenLabel{font-size:11px;color:var(--text-muted);}
+.lenInput{width:56px;background:var(--bg-panel-alt);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;padding:5px 6px;font-family:inherit;font-size:13px;}
+.disclaimerSmall{font-size:11px;color:var(--text-muted);margin:10px 0 0;line-height:1.5;font-style:italic;}
 
 #lastSync{font-size:11px;color:var(--text-muted);text-align:right;margin:8px 20px 0;}
 </style>
@@ -220,6 +233,11 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
   <p class="panelTitle">Nifty price with dynamic walls &amp; overlays</p>
   <div class="legend" id="mainLegend"></div>
   <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
+  <div class="indicatorControls" id="indicatorControls">
+    <label class="indChk"><input type="checkbox" id="chkZlema" checked> ZLEMA <span class="lenLabel">len</span> <input type="number" id="lenZlema" class="lenInput" value="24" min="2" max="200"></label>
+    <label class="indChk"><input type="checkbox" id="chkVpc" checked> VPC <span class="lenLabel">len</span> <input type="number" id="lenVpc" class="lenInput" value="20" min="2" max="200"></label>
+    <span class="hint">Drives the Setup signal panel below (trigger engine). Both checked = confluence (AND), not either/or.</span>
+  </div>
   <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with configurable strike overlays"></div>
   <p id="ohlcFallbackNote" class="fallbackNote">No OHLC candle data for this range yet, showing spot price instead.</p>
 </div>
@@ -279,17 +297,27 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 
 <div id="dynamicPanels"></div>
 
-<div class="setupPanel">
-  <div class="head">
-    <p>Setup signal</p>
-    <span class="badge">Placeholder</span>
+<div id="panelSetupLive" class="panel" data-collapse-key="setupLive">
+  <div class="panelHead">
+    <p class="panelTitle">Setup signal — live</p>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
   </div>
-  <div class="setupRow"><span>Setup</span><span>-</span></div>
-  <div class="setupRow"><span>Direction</span><span>-</span></div>
-  <div class="setupRow"><span>Entry</span><span>-</span></div>
-  <div class="setupRow"><span>Stop loss</span><span>-</span></div>
-  <div class="setupRow"><span>Target</span><span>-</span></div>
-  <p class="footNote">No active setup. Detection logic not yet built, layout only.</p>
+  <div class="panelBody">
+    <p class="panelInfo">Client-side signal engine: a ZLEMA cross and/or a VPC (volume-free) breakout on the 3-minute candles, held for a confirmation bar, then scored against the options chain (max pain, walls, GEX, PCR). Shows the most recent confirmed trigger that passed the gate.</p>
+    <div id="setupLiveCard"></div>
+    <p class="disclaimerSmall">Stop loss and target are structural levels (channel bounds, walls, max pain) — not risk-managed position sizing. Confirm position size independently.</p>
+  </div>
+</div>
+
+<div id="panelSetupHistory" class="panel" data-collapse-key="setupHistory">
+  <div class="panelHead">
+    <p class="panelTitle">Setup signal — history</p>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
+  </div>
+  <div class="panelBody">
+    <p class="panelInfo">Every confirmed trigger in the loaded range, most recent first — whether or not it passed the options gate.</p>
+    <div id="setupHistoryList"></div>
+  </div>
 </div>
 
 <div class="notesPanel">
@@ -739,6 +767,279 @@ function initNotes() {
       catch (e) { if (saved) saved.textContent = 'Not saved (storage unavailable)'; }
     }, 400);
   });
+}
+
+/* ---------- signal engine v2: trigger (ZLEMA / VPC) + gate (options chain) + card UI ----------
+   Three deliberately separate layers, per spec:
+     1) trigger module  - indicator_ZLEMA / vpc_channel / detectTriggers / detectVpcTriggers
+     2) gate module      - scoreEvent (options chain confirmation, never the entry signal itself)
+     3) card UI          - signalCardHtml (one reusable component for the live panel and history list)
+   Keeping these separate is what makes swapping/adding indicators later a one-function change.
+   Dashboard-only: this does not write anywhere, and is not yet ported to the n8n/Telegram side. */
+
+var GATE_WALL_CLEARANCE = 80;
+var GATE_MAXPAIN_ROOM = 100;
+var GATE_PASS_THRESHOLD = 3;
+var GATE_REGIME_RANGE_THRESHOLD = 50; // |spot_dist_from_max_pain| below this = "Range regime" note, else "Trend regime"
+var SIGNAL_CONFIRM_BARS = 1;
+
+var sigState = { zlemaLen: 24, vpcLen: 20, useZlema: true, useVpc: true };
+
+function indicator_ZLEMA(closes, length) {
+  var lag = Math.floor((length - 1) / 2);
+  var adjusted = closes.map(function(v, i){ return i >= lag ? v + (v - closes[i-lag]) : v; });
+  var k = 2/(length+1);
+  var out = []; var ema = adjusted[0];
+  for (var i=0;i<adjusted.length;i++){ ema = i===0 ? adjusted[0] : adjusted[i]*k + ema*(1-k); out.push(ema); }
+  return out;
+}
+
+function vpc_channel(highs, lows, length){
+  var upper=[], lower=[];
+  for (var i=0;i<highs.length;i++){
+    var s = Math.max(0, i-length+1);
+    var hh=-Infinity, ll=Infinity;
+    for (var j=s;j<=i;j++){ if(highs[j]>hh)hh=highs[j]; if(lows[j]<ll)ll=lows[j]; }
+    upper.push(hh); lower.push(ll);
+  }
+  return {upper:upper, lower:lower};
+}
+
+function detectTriggers(closes, triggerSeries, CONFIRM_BARS){
+  var events = [];
+  for (var i=1;i<closes.length;i++){
+    var prevAbove = closes[i-1] > triggerSeries[i-1];
+    var nowAbove = closes[i] > triggerSeries[i];
+    if (prevAbove !== nowAbove){
+      var held = true;
+      for (var c=1;c<=CONFIRM_BARS;c++){
+        if (i+c >= closes.length){ held = false; break; }
+        var stillAbove = closes[i+c] > triggerSeries[i+c];
+        if (stillAbove !== nowAbove){ held = false; break; }
+      }
+      events.push({ idx:i, dir: nowAbove?'BULL':'BEAR', confirmed: held });
+    }
+  }
+  return events;
+}
+
+/* VPC has no cross-of-a-line to key off (the channel has no volume weighting to anchor a
+   midline the way the real Pine indicator does) - the trigger is a new N-period high/low
+   forming, per spec 1b. "Held" is defined the same way as detectTriggers: the next
+   CONFIRM_BARS closes must keep moving in the breakout's direction. */
+function detectVpcTriggers(highs, lows, closes, upper, lower, CONFIRM_BARS){
+  var events = [];
+  for (var i=0;i<highs.length;i++){
+    var isBull = highs[i] === upper[i];
+    var isBear = lows[i] === lower[i];
+    if (isBull === isBear) continue; // both or neither -> no clean breakout this bar
+    var dir = isBull ? 'BULL' : 'BEAR';
+    var held = true;
+    for (var c=1;c<=CONFIRM_BARS;c++){
+      if (i+c >= closes.length){ held = false; break; }
+      var stillDir = dir === 'BULL' ? (closes[i+c] >= closes[i+c-1]) : (closes[i+c] <= closes[i+c-1]);
+      if (!stillDir){ held = false; break; }
+    }
+    events.push({ idx:i, dir:dir, confirmed:held });
+  }
+  return events;
+}
+
+function dedupeEvents(list){
+  var seen = {}, out = [];
+  list.forEach(function(e){
+    var k = e.idx + '_' + e.dir;
+    if (!seen[k]) { seen[k] = true; out.push(e); }
+  });
+  return out;
+}
+
+function nearestRowAtOrBefore(timeSec){
+  var lo=0, hi=rowTimes.length-1, ans=-1;
+  while (lo<=hi){
+    var mid=(lo+hi)>>1;
+    if (rowTimes[mid] <= timeSec) { ans=mid; lo=mid+1; } else hi=mid-1;
+  }
+  return ans;
+}
+
+/* Gate module: scores a confirmed trigger against the options chain. Never decides
+   *when* to enter (that's the trigger's job) - only whether the trigger is worth trusting. */
+function scoreEvent(ev, ohlcRows, vpc, times, setupLabel){
+  var bar = ohlcRows[ev.idx];
+  var entry = bar.close;
+  var timeSec = times[ev.idx];
+  var dir = ev.dir;
+  var rowIdx = nearestRowAtOrBefore(timeSec);
+  var orow = rowIdx >= 0 ? rows[rowIdx] : null;
+
+  var stopLossVal = dir === 'BULL' ? vpc.lower[ev.idx] : vpc.upper[ev.idx];
+
+  var passCount = 0;
+  var failedNames = [];
+  var regimeText = null;
+  var target = null;
+
+  function check(name, ok){
+    if (ok === null || ok === undefined) return;
+    if (ok) passCount++; else failedNames.push(name);
+  }
+
+  if (orow) {
+    if (orow.spot_dist_from_max_pain !== null && orow.spot_dist_from_max_pain !== undefined) {
+      regimeText = Math.abs(orow.spot_dist_from_max_pain) < GATE_REGIME_RANGE_THRESHOLD
+        ? 'Range regime — expect smaller moves'
+        : 'Trend regime — may run further';
+    }
+    if (dir === 'BULL') {
+      check('vs max pain', (orow.max_pain_strike != null) ? (orow.spot_price < orow.max_pain_strike + GATE_MAXPAIN_ROOM) : null);
+      check('wall clearance', (orow.call_wall_strike != null) ? (orow.call_wall_strike - orow.spot_price > GATE_WALL_CLEARANCE) : null);
+      check('GEX', (orow.gex_total != null) ? (orow.gex_total < 0) : null);
+      check('PCR bias', (orow.pcr_oi != null) ? (orow.pcr_oi > 1.0) : null);
+      var upCandidates = [orow.call_wall_strike, orow.max_pain_strike].filter(function(v){ return v != null; });
+      var upAhead = upCandidates.filter(function(v){ return v > entry; });
+      var upPool = upAhead.length ? upAhead : upCandidates;
+      if (upPool.length) { upPool.sort(function(a,b){ return Math.abs(a-entry)-Math.abs(b-entry); }); target = upPool[0]; }
+    } else {
+      check('vs max pain', (orow.max_pain_strike != null) ? (orow.spot_price > orow.max_pain_strike - GATE_MAXPAIN_ROOM) : null);
+      check('wall clearance', (orow.put_wall_strike != null) ? (orow.spot_price - orow.put_wall_strike > GATE_WALL_CLEARANCE) : null);
+      check('GEX', (orow.gex_total != null) ? (orow.gex_total < 0) : null);
+      check('PCR bias', (orow.pcr_oi != null) ? (orow.pcr_oi < 1.0) : null);
+      var dnCandidates = [orow.put_wall_strike, orow.max_pain_strike].filter(function(v){ return v != null; });
+      var dnAhead = dnCandidates.filter(function(v){ return v < entry; });
+      var dnPool = dnAhead.length ? dnAhead : dnCandidates;
+      if (dnPool.length) { dnPool.sort(function(a,b){ return Math.abs(a-entry)-Math.abs(b-entry); }); target = dnPool[0]; }
+    }
+  }
+
+  var gatePassed = passCount >= GATE_PASS_THRESHOLD;
+  var note = !orow
+    ? 'No options-chain data available near this trigger.'
+    : gatePassed
+      ? (regimeText || 'Gate passed.')
+      : ('Gate failed — ' + (failedNames.length ? failedNames.join(', ') : 'insufficient options data'));
+
+  return {
+    idx: ev.idx,
+    setup: setupLabel,
+    direction: dir === 'BULL' ? 'Long' : 'Short',
+    entry: fmt(entry, 2),
+    stopLoss: stopLossVal != null && !isNaN(stopLossVal) ? fmt(stopLossVal, 2) : '-',
+    target: target != null ? fmt(target, 2) : '-',
+    badgeText: passCount + '/4',
+    badgeOk: gatePassed,
+    gatePassed: gatePassed,
+    note: note,
+    timeLabel: istCrosshairFmt.format(new Date(timeSec*1000))
+  };
+}
+
+/* Card UI: one reusable template used for both the live panel and each history row. */
+function signalCardHtml(sig, small) {
+  if (!sig) {
+    return '<div class="setupPanel"><div class="head"><p>Setup signal</p><span class="badge">No signal</span></div>' +
+      '<div class="setupRow"><span>Setup</span><span>-</span></div>' +
+      '<div class="setupRow"><span>Direction</span><span>-</span></div>' +
+      '<div class="setupRow"><span>Entry</span><span>-</span></div>' +
+      '<div class="setupRow"><span>Stop loss</span><span>-</span></div>' +
+      '<div class="setupRow"><span>Target</span><span>-</span></div>' +
+      '<p class="footNote">No active setup. Waiting for a confirmed, gate-passed trigger.</p></div>';
+  }
+  var badgeClass = sig.badgeOk ? 'badgeOk' : 'badgeFail';
+  return '<div class="setupPanel' + (small ? ' setupPanelSmall' : '') + '">' +
+    '<div class="head"><p>' + sig.timeLabel + '</p><span class="badge ' + badgeClass + '">' + sig.badgeText + '</span></div>' +
+    '<div class="setupRow"><span>Setup</span><span>' + sig.setup + '</span></div>' +
+    '<div class="setupRow"><span>Direction</span><span>' + sig.direction + '</span></div>' +
+    '<div class="setupRow"><span>Entry</span><span>' + sig.entry + '</span></div>' +
+    '<div class="setupRow"><span>Stop loss</span><span>' + sig.stopLoss + '</span></div>' +
+    '<div class="setupRow"><span>Target</span><span>' + sig.target + '</span></div>' +
+    '<p class="footNote">' + sig.note + '</p></div>';
+}
+
+function signalMessageHtml(msg) {
+  return '<div class="setupPanel"><div class="head"><p>Setup signal</p><span class="badge">-</span></div>' +
+    '<p class="footNote">' + msg + '</p></div>';
+}
+
+/* Confirmed-trigger arrows on the main chart, via Lightweight Charts' native marker API
+   (same mechanism as the existing ATM strike-roll markers) - green arrowUp below the bar for
+   a confirmed BULL trigger, red arrowDown above the bar for BEAR. Text shows the gate score
+   so a glance at the chart tells you whether that arrow was ever worth trusting. */
+function applySignalMarkers(scored, times) {
+  if (!mainSeries) return;
+  if (!scored || !scored.length) { mainSeries.setMarkers([]); return; }
+  var markers = scored.map(function(e) {
+    var isBull = e.direction === 'Long';
+    return {
+      time: times[e.idx],
+      position: isBull ? 'belowBar' : 'aboveBar',
+      color: isBull ? colAqua : colRed,
+      shape: isBull ? 'arrowUp' : 'arrowDown',
+      text: e.badgeText
+    };
+  }).sort(function(a, b){ return a.time - b.time; });
+  mainSeries.setMarkers(markers);
+}
+
+function computeSignals() {
+  var liveHost = document.getElementById('setupLiveCard');
+  var histHost = document.getElementById('setupHistoryList');
+  if (!liveHost || !histHost) return;
+
+  if (!sigState.useZlema && !sigState.useVpc) {
+    liveHost.innerHTML = signalMessageHtml('Select at least one indicator (ZLEMA and/or VPC) above the main chart to run detection.');
+    histHost.innerHTML = '';
+    if (mainSeries) mainSeries.setMarkers([]);
+    return;
+  }
+  if (!ohlcRows.length) {
+    liveHost.innerHTML = signalMessageHtml('No OHLC candle data yet for this range — the signal engine needs high/low candles to compute triggers.');
+    histHost.innerHTML = '';
+    if (mainSeries) mainSeries.setMarkers([]);
+    return;
+  }
+
+  var closes = ohlcRows.map(function(r){ return r.close; });
+  var highs = ohlcRows.map(function(r){ return r.high; });
+  var lows = ohlcRows.map(function(r){ return r.low; });
+  var times = ohlcRows.map(function(r){ return toEpochSeconds(r.candle_timestamp); });
+
+  var vpc = vpc_channel(highs, lows, sigState.vpcLen); // always computed: stop-loss levels come from this regardless of trigger selection
+
+  var zlemaEvents = sigState.useZlema ? detectTriggers(closes, indicator_ZLEMA(closes, sigState.zlemaLen), SIGNAL_CONFIRM_BARS).filter(function(e){ return e.confirmed; }) : [];
+  var vpcEvents = sigState.useVpc ? detectVpcTriggers(highs, lows, closes, vpc.upper, vpc.lower, SIGNAL_CONFIRM_BARS).filter(function(e){ return e.confirmed; }) : [];
+
+  var finalEvents = [];
+  var setupLabel;
+  if (sigState.useZlema && sigState.useVpc) {
+    setupLabel = 'ZLEMA + VPC confluence';
+    zlemaEvents.forEach(function(ze){
+      vpcEvents.forEach(function(ve){
+        if (ve.dir === ze.dir && Math.abs(ve.idx - ze.idx) <= 1) {
+          finalEvents.push({ idx: Math.max(ze.idx, ve.idx), dir: ze.dir });
+        }
+      });
+    });
+    finalEvents = dedupeEvents(finalEvents);
+  } else if (sigState.useZlema) {
+    setupLabel = 'ZLEMA cross';
+    finalEvents = zlemaEvents.map(function(e){ return { idx:e.idx, dir:e.dir }; });
+  } else {
+    setupLabel = 'VPC breakout';
+    finalEvents = vpcEvents.map(function(e){ return { idx:e.idx, dir:e.dir }; });
+  }
+  finalEvents.sort(function(a,b){ return a.idx - b.idx; });
+
+  var scored = finalEvents.map(function(ev){ return scoreEvent(ev, ohlcRows, vpc, times, setupLabel); });
+  applySignalMarkers(scored, times);
+
+  var passed = scored.filter(function(e){ return e.gatePassed; });
+  var live = passed.length ? passed[passed.length-1] : null;
+  liveHost.innerHTML = signalCardHtml(live, false);
+
+  histHost.innerHTML = scored.length
+    ? scored.slice().reverse().map(function(e){ return signalCardHtml(e, true); }).join('')
+    : '<p class="hint">No confirmed triggers yet in this range.</p>';
 }
 
 /* ---------- expected-move band: custom series primitive (true shaded fill) ---------- */
@@ -1209,6 +1510,7 @@ function loadRange(from, to) {
       renderCharts();
       applyAllToggleEffects();
       updateMetrics();
+      computeSignals();
       document.getElementById('lastSync').textContent = 'Last synced ' + new Date().toLocaleTimeString();
     })
     .catch(handleError)
@@ -1228,6 +1530,7 @@ function resolveDatesAndLoad() {
         if (!dateJson.length) {
           rows = []; ohlcRows = []; currentDate = null;
           updateMetrics();
+          computeSignals();
           document.getElementById('emptyBox').style.display = 'block';
           document.getElementById('lastSync').textContent = 'Last synced ' + new Date().toLocaleTimeString();
           return;
@@ -1265,6 +1568,19 @@ document.getElementById('backToLiveBtn').addEventListener('click', function() {
   resolveDatesAndLoad();
   pollHandle = setInterval(resolveDatesAndLoad, 45000);
 });
+
+/* ---------- signal engine controls (recompute immediately, no reload) ---------- */
+
+function clampLen(v, fallback) {
+  var n = parseInt(v, 10);
+  if (isNaN(n) || n < 2) return fallback;
+  return Math.min(n, 200);
+}
+
+document.getElementById('chkZlema').addEventListener('change', function(e){ sigState.useZlema = e.target.checked; computeSignals(); });
+document.getElementById('chkVpc').addEventListener('change', function(e){ sigState.useVpc = e.target.checked; computeSignals(); });
+document.getElementById('lenZlema').addEventListener('change', function(e){ sigState.zlemaLen = clampLen(e.target.value, sigState.zlemaLen); e.target.value = sigState.zlemaLen; computeSignals(); });
+document.getElementById('lenVpc').addEventListener('change', function(e){ sigState.vpcLen = clampLen(e.target.value, sigState.vpcLen); e.target.value = sigState.vpcLen; computeSignals(); });
 
 /* ---------- init ---------- */
 

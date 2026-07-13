@@ -40,6 +40,49 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 - **Collapse / expand** — on **every pane except the main chart**. Each collapsible panel has `data-collapse-key` and a `.collapseBtn` (−/+) wired in `initCollapse`; collapsing adds `.collapsed` (hides `.panelBody` and the readout) and persists to `localStorage` under `gnims_collapsed_v1`. On expand, the pane is resized and its range re-synced (a `display:none` body reports width 0 while collapsed).
 - **Notes**: a free-text `<textarea id="notesArea">` near the bottom, auto-saved (400 ms debounce) to `localStorage` under `gnims_notes_v1` via `initNotes`, with a "Saved" indicator. Degrades to in-memory if storage is unavailable.
 
+## Signal engine v2 (client-side trigger + gate + card)
+
+A real, working setup-detection engine layered on top of the existing dashboard — computed entirely in the browser from data already in `nifty_ohlc_3min` and `options_snapshots`. **This phase is dashboard-only.** A future phase ports the same trigger+gate logic into the n8n pipeline with a new Supabase table for Telegram alerting — not yet started, not part of this repo.
+
+**Three-layer architecture, kept deliberately separate** (never merge these — this is what makes swapping/adding indicators later a one-function change instead of a rewrite):
+1. **Trigger module** — `indicator_ZLEMA`, `vpc_channel`, `detectTriggers`, `detectVpcTriggers`. Decides *when* a raw signal fires.
+2. **Gate module** — `scoreEvent`. Decides *whether to trust* a confirmed trigger, by scoring it against the options chain. Never decides entry timing.
+3. **Card UI** — `signalCardHtml`. One reusable component rendering the Setup/Direction/Entry/Stop loss/Target layout, used for both the live panel and every history row.
+
+**Indicators (Part 1):**
+- **ZLEMA** (`indicator_ZLEMA(closes, length)`): zero-lag EMA — a lag-adjusted price series fed through a standard EMA formula. Length is user-editable (number input, default `24`), recomputes immediately on change, no reload.
+- **VPC — volume-free adaptation** (`vpc_channel(highs, lows, length)`): the real VPC indicator anchors its channel to volume-weighted highs/lows; **the Nifty index has no volume**, so this is a rolling N-period high/low channel instead (`upper`/`lower`), not a literal Pine port. Length is user-editable (default `20`, matching the Pine default — added for consistency with ZLEMA's editable length even though only ZLEMA's was explicitly requested).
+- **VPC trigger events** (`detectVpcTriggers`): a BULL trigger fires when the bar's `high` equals the rolling `upper` (new N-period high); BEAR when `low` equals the rolling `lower`. This differs from ZLEMA's cross-based trigger (`detectTriggers`, cross of `closes` vs the indicator series) because VPC's trigger is a breakout event, not a line cross.
+- **Indicator selection**: two checkboxes above the main chart (`chkZlema`, `chkVpc`), both checked by default. **Combination logic is deliberate, not arbitrary:**
+  - ZLEMA only → triggers from ZLEMA crosses only.
+  - VPC only → triggers from VPC new-high/new-low events only.
+  - **Both checked → confluence (AND), not OR.** A trigger only fires when both agree on direction within the same or adjacent bar (`Math.abs(idx diff) <= 1`). OR was explicitly rejected: firing on *either* indicator would double the noise a single indicator already has, not reduce it — consistent with every other confirmation rule in this system (the gate, the 2-reading OI rule, etc.).
+  - Neither checked → "select at least one indicator" state, no detection runs.
+  - The VPC channel (`upper`/`lower`) is always computed regardless of which indicator(s) are selected as triggers, because stop-loss levels are read from it even in "ZLEMA only" mode.
+
+**Confirmation (Part 2, unchanged from spec):** a raw cross/breakout is provisional until it holds for `SIGNAL_CONFIRM_BARS` additional bars in the same direction (default `1`). Only confirmed triggers reach the gate.
+
+**Options gate (Part 3, `scoreEvent`)** — for each confirmed trigger, finds the nearest `options_snapshots` row at or before the trigger's timestamp (`nearestRowAtOrBefore`, binary search over `rowTimes`) and scores it:
+
+| # | Check | BULL passes when | BEAR passes when |
+|---|---|---|---|
+| 1 | Regime (`spot_dist_from_max_pain`) | context only, always shown, never blocks a pass | same |
+| 2 | Vs max pain | `spot_price < max_pain_strike + GATE_MAXPAIN_ROOM` | `spot_price > max_pain_strike - GATE_MAXPAIN_ROOM` |
+| 3 | Wall clearance | `call_wall_strike - spot_price > GATE_WALL_CLEARANCE` | `spot_price - put_wall_strike > GATE_WALL_CLEARANCE` |
+| 4 | GEX | `gex_total < 0` | `gex_total < 0` |
+| 5 | PCR bias | `pcr_oi > 1.0` | `pcr_oi < 1.0` |
+
+Pass threshold: `GATE_PASS_THRESHOLD` (3) of the 4 scored checks (regime is contextual, doesn't count toward the score). Constants — `GATE_WALL_CLEARANCE = 80`, `GATE_MAXPAIN_ROOM = 100`, `GATE_PASS_THRESHOLD = 3` — are **reasoned defaults from manual analysis, not yet outcome-tuned**. `GATE_REGIME_RANGE_THRESHOLD = 50` (points of `spot_dist_from_max_pain`) is this session's own addition (not in the original spec) to decide the regime note's wording — also a reasoned default, easy to retune.
+
+**Signal card (Part 4)** — `signalCardHtml(sig, small)` fills: Setup (which indicator(s) fired, per the active selection — `"ZLEMA cross"` / `"VPC breakout"` / `"ZLEMA + VPC confluence"`), Direction (`Long`/`Short`), Entry (trigger bar's close), Stop loss (VPC channel `lower` for Long / `upper` for Short, at the trigger bar — a structural level, not position sizing), Target (nearer of the relevant wall or max pain, ahead of Entry in the trade's direction), and a badge showing the gate score (e.g. `3/4`) colored pass/fail (`badgeOk`/`badgeFail` classes reusing the existing `--up`/`--down`/`--danger-bg` tokens). The note line states which checks failed on a non-pass, or the regime read (`"Range regime — expect smaller moves"` / `"Trend regime — may run further"`) on a pass. The panel carries a fixed small-print disclaimer: stop loss/target are structural levels, not risk-managed position sizing.
+- **Live panel** (`#panelSetupLive` → `#setupLiveCard`): the most recent confirmed trigger that passed the gate; falls back to a "no active setup" card when none has passed, or an explicit message when no indicator is selected or no OHLC data exists yet for the range.
+- **History list** (`#panelSetupHistory` → `#setupHistoryList`): every confirmed trigger in the currently loaded range, passed or not, most recent first, using the same card at a smaller size (`setupPanelSmall`).
+- Both recompute via `computeSignals()`, called after every data load and on every indicator-control change (checkbox or length input) — no page reload needed.
+
+**Collapse (Part 5):** both `panelSetupLive` and `panelSetupHistory` are plain `.panel[data-collapse-key]` elements, so they collapse/expand and persist via the *existing* `initCollapse()`/`gnims_collapsed_v1` machinery with no special-casing — `collapseEntryFor` simply returns `null` for their keys since they have no chart to resize.
+
+**On-chart markers:** every confirmed trigger (in `scored`, regardless of gate pass/fail) is also drawn directly on the main candlestick chart via `applySignalMarkers`, using Lightweight Charts' native marker API (`mainSeries.setMarkers()` — the same mechanism as the existing ATM strike-roll markers, not a custom drawing layer). Green `arrowUp` below the bar = confirmed BULL trigger; red `arrowDown` above the bar = confirmed BEAR trigger; the marker's text is the gate score (e.g. `"3/4"`) so pass/fail is visible at a glance without opening the history list. Recomputed every time `computeSignals()` runs (data load, indicator checkbox/length change) and cleared when no indicator is selected or no OHLC data exists yet.
+
 ## Toggle / preset system
 
 - **Two separate toggle rows**: "Overlays" (Group 1 → lines/band on the main chart) and "Panels" (Groups 2–4 + the existing velocity/ATM panels → whole panes below). Rows are generated from `overlayToggleDefs` / `panelToggleDefs`; a unified handler flips `toggles[key]`, applies the single effect, clears the active-preset highlight, and persists.
@@ -54,7 +97,7 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 ## Important notes on current behavior — do not treat these as bugs
 
 - The main price chart falls back to a plain spot-price line only when there's no OHLC data yet for the selected range (`ohlcRows.length === 0`). There is no "broken render" detection anymore — that was a workaround for a bug in the old `chartjs-chart-financial` library, which has been replaced. **Keep this fallback.**
-- The "Setup Signal" panel is a placeholder (dashes, "Placeholder" badge). It is not wired to real detection logic. When that logic is eventually built, it belongs server-side in the n8n workflow — not in this dashboard.
+- The "Setup Signal" panel is now a real, working client-side detection engine (see Signal engine v2 above) — not a placeholder. It still does not write anywhere; a future, separate phase ports the same logic server-side into n8n for Telegram alerting.
 - Live mode polls every 45 seconds and auto-tracks the latest `snapshot_date` present in Supabase; a date-range picker can switch to a fixed historical range instead.
 - Crosshair and time-scale (zoom/pan) are synced across every pane using Lightweight Charts' native `subscribeCrosshairMove`/`setCrosshairPosition` and `subscribeVisibleLogicalRangeChange`/`setVisibleLogicalRange` APIs. Touch pan/zoom is native to the library — there's no custom long-press handler anymore. Mobile tap-to-track crosshair is enabled via `trackingMode.exitMode: OnNextTap`.
 - ATM strike-roll markers use Lightweight Charts' native series marker API (`setMarkers`), not a custom drawing plugin.
@@ -82,5 +125,7 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 - Keep the candlestick → spot-line fallback.
 - Keep the snapshot fetch on `select=*` (incremental-column resilience).
 - GEX (and any future huge-magnitude metric) is scaled **in the display layer only** — never mutate the stored value.
-- Setup Signal stays a placeholder; detection logic lives server-side in n8n, not here.
+- Setup Signal detection runs client-side here (see Signal engine v2); the future n8n/Telegram port is a separate phase, not a replacement for this one.
 - The default first-load view stays strict-minimal (candles + Call/Put walls). The choice of a default "primary" preset is deliberately deferred — don't auto-apply one.
+- Signal engine: keep the trigger module (`indicator_ZLEMA`/`vpc_channel`/`detectTriggers`/`detectVpcTriggers`) and the gate module (`scoreEvent`) as separate, independently callable functions — never merge them. The gate scores trust, it never decides entry timing.
+- Signal engine stays dashboard-only (client-side, no writes). Porting the same trigger+gate logic into n8n with a new Supabase table for Telegram alerting is a distinct, not-yet-started future phase — do not build it here.
