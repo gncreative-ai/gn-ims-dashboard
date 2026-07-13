@@ -101,6 +101,29 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 .chartWrap{position:relative;width:100%;}
 .fallbackNote{display:none;font-size:12px;color:var(--text-muted);margin:8px 0 0;}
 
+.panelHead{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.panelHead .panelTitle{margin:0;}
+.panelReadout{margin-left:auto;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
+.panelReadout .rvTime{color:var(--text-muted);}
+.panelReadout .rvDot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle;}
+.panelReadout .rv{color:var(--text-primary);font-weight:600;}
+.collapseBtn{flex:none;width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;color:var(--text-secondary);}
+.panelInfo{font-size:11.5px;color:var(--text-muted);margin:0 0 10px;line-height:1.55;max-width:78ch;}
+.panel.collapsed .panelBody{display:none;}
+.panel.collapsed .panelReadout{display:none;}
+@media (max-width:600px){
+  .panelReadout{width:100%;order:3;justify-content:flex-start;margin-left:0;}
+  .panelHead{flex-wrap:wrap;}
+}
+
+.notesPanel{background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+.notesPanel .notesHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;}
+.notesPanel .panelTitle{margin:0;}
+.notesPanel textarea{width:100%;min-height:130px;resize:vertical;background:var(--bg-inset);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-family:inherit;font-size:13px;line-height:1.55;padding:10px 12px;}
+.notesPanel textarea:focus{outline:none;border-color:var(--accent-blue);}
+#notesSaved{font-size:11px;color:var(--text-muted);}
+.disclaimer{font-size:11px;color:var(--text-muted);margin:16px 20px 0;line-height:1.5;font-style:italic;}
+
 .setupPanel{background:var(--bg-panel-alt);border:1px solid var(--border);border-radius:12px;padding:16px 20px;}
 .setupPanel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
 .setupPanel .head p{font-size:15px;font-weight:500;margin:0;}
@@ -196,32 +219,62 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 <div class="panel">
   <p class="panelTitle">Nifty price with dynamic walls &amp; overlays</p>
   <div class="legend" id="mainLegend"></div>
+  <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
   <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with configurable strike overlays"></div>
   <p id="ohlcFallbackNote" class="fallbackNote">No OHLC candle data for this range yet, showing spot price instead.</p>
 </div>
 
-<div id="panelAtm" class="panel">
-  <p class="panelTitle">Rolling ATM call and put premium</p>
-  <div class="legend" id="atmLegend"></div>
-  <p id="atmUnavailableNote" class="fallbackNote">Not available yet. Add atm_ce_ltp and atm_pe_ltp columns to start collecting this.</p>
-  <div class="chartWrap" id="atmChartWrap" style="height:180px;" role="img" aria-label="Line chart of rolling at the money call and put premium, with markers where the at the money strike rolled to a new strike"></div>
+<div id="panelAtm" class="panel" data-collapse-key="atm">
+  <div class="panelHead">
+    <p class="panelTitle">Rolling ATM call and put premium</p>
+    <div class="panelReadout" id="readout_atm"></div>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
+  </div>
+  <div class="panelBody">
+    <div class="legend" id="atmLegend"></div>
+    <p class="panelInfo">Live premium of the at-the-money call and put. Both falling = volatility bleeding out of the options; both rising = volatility expanding. A circle marks each point where the ATM strike rolled to a new level as spot moved.</p>
+    <p id="atmUnavailableNote" class="fallbackNote">Not available yet. Add atm_ce_ltp and atm_pe_ltp columns to start collecting this.</p>
+    <div class="chartWrap" id="atmChartWrap" style="height:180px;" role="img" aria-label="Line chart of rolling at the money call and put premium, with markers where the at the money strike rolled to a new strike"></div>
+  </div>
 </div>
 
-<p class="hint" style="margin:0 0 8px;">Positive (blue) means OI building. Negative (red) means OI unwinding.</p>
-
-<div id="panelCallVel" class="panel">
-  <p class="panelTitle">Call OI velocity</p>
-  <div class="chartWrap" id="callVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of call open interest velocity per interval"></div>
+<div id="panelCallVel" class="panel" data-collapse-key="callVel">
+  <div class="panelHead">
+    <p class="panelTitle">Call OI velocity</p>
+    <div class="panelReadout" id="readout_callVel"></div>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
+  </div>
+  <div class="panelBody">
+    <div class="legend"><span><span class="swatch" style="background:#2962ff;"></span>Building (blue)</span><span><span class="swatch" style="background:#ef5350;"></span>Unwinding (red)</span></div>
+    <p class="panelInfo">Rate of change of total call open interest each 3-minute interval. Blue bars = calls being added (potential resistance building); red bars = calls being unwound.</p>
+    <div class="chartWrap" id="callVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of call open interest velocity per interval"></div>
+  </div>
 </div>
 
-<div id="panelPutVel" class="panel">
-  <p class="panelTitle">Put OI velocity</p>
-  <div class="chartWrap" id="putVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of put open interest velocity per interval"></div>
+<div id="panelPutVel" class="panel" data-collapse-key="putVel">
+  <div class="panelHead">
+    <p class="panelTitle">Put OI velocity</p>
+    <div class="panelReadout" id="readout_putVel"></div>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
+  </div>
+  <div class="panelBody">
+    <div class="legend"><span><span class="swatch" style="background:#2962ff;"></span>Building (blue)</span><span><span class="swatch" style="background:#ef5350;"></span>Unwinding (red)</span></div>
+    <p class="panelInfo">Rate of change of total put open interest each 3-minute interval. Blue bars = puts being added (potential support building); red bars = puts being unwound.</p>
+    <div class="chartWrap" id="putVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of put open interest velocity per interval"></div>
+  </div>
 </div>
 
-<div id="panelNetVel" class="panel">
-  <p class="panelTitle">Net OI velocity, call minus put</p>
-  <div class="chartWrap" id="netVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval"></div>
+<div id="panelNetVel" class="panel" data-collapse-key="netVel">
+  <div class="panelHead">
+    <p class="panelTitle">Net OI velocity, call minus put</p>
+    <div class="panelReadout" id="readout_netVel"></div>
+    <button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>
+  </div>
+  <div class="panelBody">
+    <div class="legend"><span><span class="swatch" style="background:#2962ff;"></span>Calls building faster (blue)</span><span><span class="swatch" style="background:#ef5350;"></span>Puts building faster (red)</span></div>
+    <p class="panelInfo">Call OI velocity minus put OI velocity. Positive (blue) = calls being stacked faster than puts; negative (red) = puts being stacked faster. A quick read on which side is getting loaded.</p>
+    <div class="chartWrap" id="netVelChartWrap" style="height:130px;" role="img" aria-label="Bar chart of net open interest velocity, call minus put, per interval"></div>
+  </div>
 </div>
 
 <div id="dynamicPanels"></div>
@@ -238,6 +291,16 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
   <div class="setupRow"><span>Target</span><span>-</span></div>
   <p class="footNote">No active setup. Detection logic not yet built, layout only.</p>
 </div>
+
+<div class="notesPanel">
+  <div class="notesHead">
+    <p class="panelTitle">My notes</p>
+    <span id="notesSaved"></span>
+  </div>
+  <textarea id="notesArea" placeholder="Jot observations, levels to watch, setups, or anything to refer back to. Saved automatically on this device."></textarea>
+</div>
+
+<p class="disclaimer">Metric descriptions are general market-structure education, not trading or investment advice. Data is provided as-is for personal reference.</p>
 
 </main>
 <p id="lastSync"></p>
@@ -299,36 +362,50 @@ var overlayToggleDefs = [
 var panelsConfig = [
   /* Group 2 */
   { key:'pcr', title:'PCR — OI &amp; Volume', height:140,
-    series:[ {label:'PCR OI', col:'pcr_oi', color:colBlue}, {label:'PCR Volume', col:'pcr_volume', color:colAqua} ],
-    refLines:[{price:1.0, label:'1.0'}] },
+    series:[ {label:'PCR OI', col:'pcr_oi', color:colBlue, dec:3}, {label:'PCR Volume', col:'pcr_volume', color:colAqua, dec:3} ],
+    refLines:[{price:1.0, label:'1.0'}],
+    info:'Put/Call ratio by open interest and by volume. Above the 1.0 line = more puts than calls (often read as defensive/supportive positioning); below 1.0 = call-heavy. Watch for extremes and for the two lines diverging.' },
   { key:'ivSkew', title:'IV skew', height:130,
-    series:[ {label:'IV skew', col:'iv_skew', color:colViolet} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'IV skew', col:'iv_skew', color:colViolet, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Difference between put and call implied volatility. Above 0 = puts priced richer than calls (downside demand / hedging); crossing 0 flips the skew.' },
   { key:'riskReversal', title:'Risk reversal', height:130,
-    series:[ {label:'Risk reversal', col:'risk_reversal', color:colOrange} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'Risk reversal', col:'risk_reversal', color:colOrange, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Call IV minus put IV. Positive = upside calls bid; negative = downside puts bid. A proxy for directional sentiment in the volatility surface.' },
   { key:'netDelta', title:'Net delta', height:130,
-    series:[ {label:'Net delta', col:'net_delta', color:colBlue} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'Net delta', col:'net_delta', color:colBlue, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Aggregate directional exposure of the chain. Above 0 = net long (upward-leaning positioning); below 0 = net short. Watch for sign flips across the 0 line.' },
   { key:'netGamma', title:'Net gamma', height:130,
-    series:[ {label:'Net gamma', col:'net_gamma', color:colAqua} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'Net gamma', col:'net_gamma', color:colAqua, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Aggregate gamma. Positive = dealers likely dampen moves (range-bound tendency); negative = moves can get amplified. The 0 line is the flip point.' },
   { key:'oiConcentration', title:'OI concentration ratio', height:130,
-    series:[ {label:'OI concentration', col:'oi_concentration_ratio', color:colYellow} ], fixedRange:{min:0, max:1} },
+    series:[ {label:'OI concentration', col:'oi_concentration_ratio', color:colYellow, dec:3} ], fixedRange:{min:0, max:1},
+    info:'How tightly open interest clusters at the top strikes, on a 0–1 scale. Higher = a few strikes dominate, so the walls tend to be sharper and more reliable.' },
   { key:'spotDistMaxPain', title:'Spot distance from max pain', height:130,
-    series:[ {label:'Distance', col:'spot_dist_from_max_pain', color:colOrange} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'Distance', col:'spot_dist_from_max_pain', color:colOrange, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Spot’s distance from the max-pain strike (0 = sitting on it). Into expiry, price often gravitates toward max pain; a large gap can signal a pull back toward it.' },
   { key:'aggTheta', title:'Aggregate theta', height:130,
-    series:[ {label:'Theta', col:'aggregate_theta', color:colRed} ] },
+    series:[ {label:'Theta', col:'aggregate_theta', color:colRed, dec:2} ],
+    info:'Total daily time decay across the chain. More negative = premium eroding faster, which favours option sellers over buyers.' },
   { key:'aggVega', title:'Aggregate vega', height:130,
-    series:[ {label:'Vega', col:'aggregate_vega', color:colBlue} ] },
+    series:[ {label:'Vega', col:'aggregate_vega', color:colBlue, dec:2} ],
+    info:'Total sensitivity to a 1-point change in implied volatility. Larger magnitude = P&amp;L is more exposed to IV rising or falling.' },
   /* Group 3 */
   { key:'atmStraddle', title:'ATM straddle price', unit:'&#8377;', height:140,
-    series:[ {label:'ATM straddle', col:'atm_straddle_price', color:colViolet} ] },
+    series:[ {label:'ATM straddle', col:'atm_straddle_price', color:colViolet, dec:2} ],
+    info:'Price of the at-the-money call + put = the market’s expected move to expiry. Falling = volatility being sold / decaying; sharp spikes flag event risk.' },
   { key:'atmIv', title:'ATM implied volatility', unit:'%', height:140,
-    series:[ {label:'ATM IV call', col:'atm_iv_call', color:colRed}, {label:'ATM IV put', col:'atm_iv_put', color:colAqua} ] },
+    series:[ {label:'ATM IV call', col:'atm_iv_call', color:colRed, dec:2}, {label:'ATM IV put', col:'atm_iv_put', color:colAqua, dec:2} ],
+    info:'Implied volatility of the ATM call and put. Rising = options getting pricier (fear / demand); a gap between the call and put lines hints at directional skew.' },
   { key:'basis', title:'Basis (futures &minus; spot)', unit:'&#8377;', height:130,
-    series:[ {label:'Basis', col:'basis', color:colBlue} ], refLines:[{price:0, label:'0'}] },
+    series:[ {label:'Basis', col:'basis', color:colBlue, dec:2} ], refLines:[{price:0, label:'0'}],
+    info:'Futures minus spot. Positive = futures at a premium (carry / bullish positioning); negative = discount. The 0 line is fair value.' },
   { key:'totalOi', title:'Total OI — call &amp; put', unit:'contracts', height:140,
-    series:[ {label:'Total call OI', col:'total_call_oi', color:colRed}, {label:'Total put OI', col:'total_put_oi', color:colAqua} ] },
+    series:[ {label:'Total call OI', col:'total_call_oi', color:colRed, dec:0}, {label:'Total put OI', col:'total_put_oi', color:colAqua, dec:0} ],
+    info:'Total outstanding call vs put contracts. The larger and faster-growing side shows where positioning is most concentrated.' },
   /* Group 4 */
   { key:'gex', title:'GEX total', unit:'&times;10&#8313; (billions)', height:150,
-    series:[ {label:'GEX total', col:'gex_total', color:colViolet, transform:function(v){ return v / 1e9; }} ] }
+    series:[ {label:'GEX total', col:'gex_total', color:colViolet, dec:2, transform:function(v){ return v / 1e9; }} ],
+    info:'Total dealer gamma exposure (shown in billions). Positive = dealers hedge against the move (calmer, mean-reverting tape); negative = they hedge with the move (trendier, more volatile).' }
 ];
 
 var panelToggleDefs = [
@@ -510,6 +587,7 @@ function createSyncedChart(containerId, heightPx) {
       }
     });
     syncingCrosshair = false;
+    updateReadouts(param.time != null ? param.time : null);
   });
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
@@ -539,6 +617,128 @@ function applyCurrentRange(entry) {
 function resizeEntry(entry, containerId) {
   var c = document.getElementById(containerId);
   if (entry && c && c.clientWidth > 0) entry.chart.applyOptions({ width: c.clientWidth });
+}
+
+/* ---------- hover value readouts (all panes except the main chart) ---------- */
+
+var rowTimes = [];
+var panelReadouts = [];
+
+function rebuildRowTimes() {
+  rowTimes = rows.map(function(r){ return toEpochSeconds(r.snapshot_timestamp); });
+}
+
+function nearestRowIndex(timeSec) {
+  var n = rowTimes.length;
+  if (!n) return -1;
+  if (timeSec <= rowTimes[0]) return 0;
+  if (timeSec >= rowTimes[n - 1]) return n - 1;
+  var lo = 0, hi = n - 1;
+  while (lo <= hi) {
+    var mid = (lo + hi) >> 1;
+    if (rowTimes[mid] === timeSec) return mid;
+    if (rowTimes[mid] < timeSec) lo = mid + 1; else hi = mid - 1;
+  }
+  // hi is last index below timeSec, lo is first above; pick the nearer of the two
+  return (Math.abs(rowTimes[hi] - timeSec) <= Math.abs(rowTimes[lo] - timeSec)) ? hi : lo;
+}
+
+function buildReadouts() {
+  panelReadouts = [
+    { el: document.getElementById('readout_atm'), series: [
+        { label: 'ATM call', col: 'atm_ce_ltp', dec: 2, color: colRed },
+        { label: 'ATM put', col: 'atm_pe_ltp', dec: 2, color: colAqua } ] },
+    { el: document.getElementById('readout_callVel'), series: [ { label: 'Call vel', col: 'call_oi_velocity', dec: 0, color: colBlue } ] },
+    { el: document.getElementById('readout_putVel'), series: [ { label: 'Put vel', col: 'put_oi_velocity', dec: 0, color: colBlue } ] },
+    { el: document.getElementById('readout_netVel'), series: [ { label: 'Net vel', col: 'netVel', dec: 0, color: colBlue } ] }
+  ];
+  panelsConfig.forEach(function(cfg) {
+    panelReadouts.push({
+      el: document.getElementById('readout_' + cfg.key),
+      series: cfg.series.map(function(s) {
+        return { label: s.label, col: s.col, dec: (s.dec != null ? s.dec : 2), transform: s.transform, color: s.color };
+      })
+    });
+  });
+}
+
+function updateReadouts(timeSec) {
+  if (!panelReadouts.length || !rows.length) {
+    panelReadouts.forEach(function(p){ if (p.el) p.el.innerHTML = ''; });
+    return;
+  }
+  var idx = (timeSec == null) ? rows.length - 1 : nearestRowIndex(timeSec);
+  if (idx < 0) return;
+  var row = rows[idx];
+  var timeLabel = istCrosshairFmt.format(new Date(toIstMs(row.snapshot_timestamp)));
+  panelReadouts.forEach(function(p) {
+    if (!p.el) return;
+    var parts = p.series.map(function(s) {
+      var v = row[s.col];
+      if (v === null || v === undefined) return '';
+      var val = s.transform ? s.transform(v) : v;
+      return '<span><span class="rvDot" style="background:' + s.color + ';"></span>' + s.label + ' <span class="rv">' + fmt(val, s.dec) + '</span></span>';
+    }).filter(Boolean).join('');
+    p.el.innerHTML = parts ? ('<span class="rvTime">' + timeLabel + '</span>' + parts) : '';
+  });
+}
+
+/* ---------- collapse / expand per panel (all panes except the main chart) ---------- */
+
+var COLLAPSE_KEY = 'gnims_collapsed_v1';
+var collapsed = {};
+function loadCollapsed() { try { var r = window.localStorage.getItem(COLLAPSE_KEY); if (r) collapsed = JSON.parse(r) || {}; } catch (e) {} }
+function saveCollapsed() { try { window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)); } catch (e) {} }
+
+function collapseEntryFor(key) {
+  if (key === 'atm') return { entry: atmEntry, containerId: 'atmChartWrap' };
+  if (key === 'callVel') return { entry: velEntries['call_oi_velocity'], containerId: 'callVelChartWrap' };
+  if (key === 'putVel') return { entry: velEntries['put_oi_velocity'], containerId: 'putVelChartWrap' };
+  if (key === 'netVel') return { entry: velEntries['netVel'], containerId: 'netVelChartWrap' };
+  if (panelByKey[key]) return { entry: panelByKey[key]._entry, containerId: 'chart_' + key };
+  return null;
+}
+
+function initCollapse() {
+  document.querySelectorAll('.panel[data-collapse-key]').forEach(function(panel) {
+    var key = panel.getAttribute('data-collapse-key');
+    var btn = panel.querySelector('.collapseBtn');
+    if (!btn) return;
+    function apply() {
+      var isC = !!collapsed[key];
+      panel.classList.toggle('collapsed', isC);
+      btn.innerHTML = isC ? '+' : '&minus;';
+    }
+    apply();
+    btn.addEventListener('click', function() {
+      collapsed[key] = !collapsed[key];
+      apply();
+      saveCollapsed();
+      if (!collapsed[key]) {
+        var ref = collapseEntryFor(key);
+        if (ref && ref.entry) { resizeEntry(ref.entry, ref.containerId); applyCurrentRange(ref.entry); }
+      }
+    });
+  });
+}
+
+/* ---------- notes (persisted to this device) ---------- */
+
+var NOTES_KEY = 'gnims_notes_v1';
+var notesSaveTimer = null;
+function initNotes() {
+  var area = document.getElementById('notesArea');
+  var saved = document.getElementById('notesSaved');
+  if (!area) return;
+  try { var v = window.localStorage.getItem(NOTES_KEY); if (v !== null) area.value = v; } catch (e) {}
+  area.addEventListener('input', function() {
+    if (saved) saved.textContent = 'Saving…';
+    if (notesSaveTimer) clearTimeout(notesSaveTimer);
+    notesSaveTimer = setTimeout(function() {
+      try { window.localStorage.setItem(NOTES_KEY, area.value); if (saved) saved.textContent = 'Saved'; }
+      catch (e) { if (saved) saved.textContent = 'Not saved (storage unavailable)'; }
+    }, 400);
+  });
 }
 
 /* ---------- expected-move band: custom series primitive (true shaded fill) ---------- */
@@ -758,15 +958,23 @@ function buildPanelsDOM() {
     div.className = 'panel';
     div.id = 'panelWrap_' + cfg.key;
     div.style.display = 'none';
+    div.setAttribute('data-collapse-key', cfg.key);
     var unit = cfg.unit ? ' <span class="unit">' + cfg.unit + '</span>' : '';
     var legend = cfg.series.map(function(s) {
       return '<span><span class="swatch" style="background:' + s.color + ';"></span>' + s.label + '</span>';
     }).join('');
     div.innerHTML =
-      '<p class="panelTitle">' + cfg.title + unit + '</p>' +
-      '<div class="legend">' + legend + '</div>' +
-      '<p class="fallbackNote" id="note_' + cfg.key + '">Not available yet. This metric has no data in the selected range (the source column may not exist in Supabase yet).</p>' +
-      '<div class="chartWrap" id="chart_' + cfg.key + '" style="height:' + (cfg.height || 130) + 'px;"></div>';
+      '<div class="panelHead">' +
+        '<p class="panelTitle">' + cfg.title + unit + '</p>' +
+        '<div class="panelReadout" id="readout_' + cfg.key + '"></div>' +
+        '<button class="collapseBtn" type="button" title="Collapse / expand">&minus;</button>' +
+      '</div>' +
+      '<div class="panelBody">' +
+        '<div class="legend">' + legend + '</div>' +
+        (cfg.info ? '<p class="panelInfo">' + cfg.info + '</p>' : '') +
+        '<p class="fallbackNote" id="note_' + cfg.key + '">Not available yet. This metric has no data in the selected range (the source column may not exist in Supabase yet).</p>' +
+        '<div class="chartWrap" id="chart_' + cfg.key + '" style="height:' + (cfg.height || 130) + 'px;"></div>' +
+      '</div>';
     host.appendChild(div);
   });
 }
@@ -847,6 +1055,7 @@ function applyAllToggleEffects() {
   updatePanelVisibility();
   panelsConfig.forEach(function(cfg) { renderPanel(cfg); });
   syncButtonStates();
+  updateReadouts(null);
 }
 
 /* Apply the effect of a single toggle key (used on individual button clicks). */
@@ -871,6 +1080,7 @@ function mkToggleBtn(def) {
     toggles[def.key] = !toggles[def.key];
     b.classList.toggle('active', toggles[def.key]);
     applyToggleEffect(def.key);
+    updateReadouts(null);
     clearActivePreset();
     saveToggles();
   });
@@ -993,6 +1203,7 @@ function loadRange(from, to) {
         return r;
       });
       ohlcRows = results[1];
+      rebuildRowTimes();
       atmLegsAvailable = rows.some(function(r){ return r.atm_ce_ltp !== null && r.atm_ce_ltp !== undefined; });
       if (!rows.length) document.getElementById('emptyBox').style.display = 'block';
       renderCharts();
@@ -1058,8 +1269,12 @@ document.getElementById('backToLiveBtn').addEventListener('click', function() {
 /* ---------- init ---------- */
 
 loadToggles();
+loadCollapsed();
 buildControls();
 buildPanelsDOM();
+buildReadouts();
+initCollapse();
+initNotes();
 syncButtonStates();
 
 resolveDatesAndLoad();

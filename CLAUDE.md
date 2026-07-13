@@ -33,6 +33,13 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 - Group 3 (premium / raw counts): ATM Straddle `atm_straddle_price` (₹); ATM IV `atm_iv_call` + `atm_iv_put` (same panel, %); Basis `basis` (futures−spot, ₹, ref 0); Total Call OI `total_call_oi` + Total Put OI `total_put_oi` (same panel, contracts).
 - Group 4 (GEX, isolated): GEX total `gex_total`. **Display-only scaling: divided by 1e9** via a `transform` in the panel config (unit label "×10⁹ (billions)"); the stored value is never altered.
 
+## Panel UX (info headers, hover readouts, collapse, notes)
+
+- **Info headers**: every panel (including the main chart) shows a `.panelInfo` line under its legend explaining what the metric is, what the line colors mean, and how to read it. For the config-driven panels this is the `info` field in `panelsConfig`; the main/ATM/velocity panels have their `info` text inline in the HTML. These are general market-structure descriptions, not trading advice (a `.disclaimer` line at the bottom of the page states this).
+- **Hover value readouts** — on **every pane except the main chart**. Each panel header has a `.panelReadout` (`readout_<key>`) that shows the timestamp + each series' value at the hovered point. Driven by `updateReadouts(timeSec)`, called from the shared crosshair handler in `createSyncedChart`, so hovering any pane updates all readouts in sync. `nearestRowIndex` (binary search over `rowTimes`) maps the crosshair time to the nearest snapshot row. When not hovering, readouts show the latest row. Per-series decimals come from the `dec` field; `transform` (e.g. GEX ÷1e9) is applied before formatting. The registry is built once in `buildReadouts` (4 static panels + every `panelsConfig` entry).
+- **Collapse / expand** — on **every pane except the main chart**. Each collapsible panel has `data-collapse-key` and a `.collapseBtn` (−/+) wired in `initCollapse`; collapsing adds `.collapsed` (hides `.panelBody` and the readout) and persists to `localStorage` under `gnims_collapsed_v1`. On expand, the pane is resized and its range re-synced (a `display:none` body reports width 0 while collapsed).
+- **Notes**: a free-text `<textarea id="notesArea">` near the bottom, auto-saved (400 ms debounce) to `localStorage` under `gnims_notes_v1` via `initNotes`, with a "Saved" indicator. Degrades to in-memory if storage is unavailable.
+
 ## Toggle / preset system
 
 - **Two separate toggle rows**: "Overlays" (Group 1 → lines/band on the main chart) and "Panels" (Groups 2–4 + the existing velocity/ATM panels → whole panes below). Rows are generated from `overlayToggleDefs` / `panelToggleDefs`; a unified handler flips `toggles[key]`, applies the single effect, clears the active-preset highlight, and persists.
@@ -65,7 +72,8 @@ Everything below `options_snapshots` unless noted. Metrics are grouped by measur
 
 - No build step — edit `index.html` directly.
 - Do not refactor or restructure without being asked; the current file is a validated working baseline.
-- **Adding a new overlay or panel is data-driven**: append an entry to `overlayLineDefs` + `overlayToggleDefs` (main-chart overlay) or to `panelsConfig` + `panelToggleDefs` (new pane). No new bespoke builder functions needed — `ensurePanel`/`renderPanel` and the shared sync wiring handle it.
+- **Adding a new overlay or panel is data-driven**: append an entry to `overlayLineDefs` + `overlayToggleDefs` (main-chart overlay) or to `panelsConfig` + `panelToggleDefs` (new pane). No new bespoke builder functions needed — `ensurePanel`/`renderPanel` and the shared sync wiring handle it. For a new panel, also set `info` (the header description) and `dec` per series (readout decimals); the info header, hover readout, and collapse control are generated automatically by `buildPanelsDOM`/`buildReadouts`/`initCollapse`.
+- **The main price chart is deliberately excluded** from the hover readout and the collapse control (per design); it keeps its info header only. Don't add those two to it without being asked.
 - Feature work (additional analytics panels, the server-side setup-detection system) will be directed incrementally — this file will be updated as that context accumulates.
 
 ## Invariants a future session must NOT break
