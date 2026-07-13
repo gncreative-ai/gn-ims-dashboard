@@ -232,7 +232,7 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 <div class="panel">
   <p class="panelTitle">Nifty price with dynamic walls &amp; overlays</p>
   <div class="legend" id="mainLegend"></div>
-  <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
+  <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. The amber line is the ZLEMA trigger; the grey dashed band is the VPC channel (context, shown when its checkbox below is on). Triangle markers show confirmed signal-engine triggers, labelled with the gate score. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
   <div class="indicatorControls" id="indicatorControls">
     <label class="indChk"><input type="checkbox" id="chkZlema" checked> ZLEMA <span class="lenLabel">len</span> <input type="number" id="lenZlema" class="lenInput" value="24" min="2" max="200"></label>
     <label class="indChk"><input type="checkbox" id="chkVpc" checked> VPC <span class="lenLabel">len</span> <input type="number" id="lenVpc" class="lenInput" value="20" min="2" max="200"></label>
@@ -356,6 +356,7 @@ var colSlate = '#90a4ae';
 var colAquaLt = '#80cbc4';
 var colRedLt = '#ff8a80';
 var colBlueLt = '#42a5f5';
+var colZlema = '#ffa000';
 
 /* ---------- metric registry ----------
    GROUP 1 overlays render on the main price chart (shared price scale).
@@ -981,6 +982,24 @@ function applySignalMarkers(scored, times) {
   mainSeries.setMarkers(markers);
 }
 
+/* ZLEMA line + VPC channel bands, drawn directly on the main chart (not just used internally
+   for trigger math). Visibility follows each indicator's own checkbox; data is cleared when
+   there's nothing to show so a stale line/band never lingers. */
+function clearIndicatorOverlays() {
+  if (zlemaSeries) zlemaSeries.setData([]);
+  if (vpcUpperSeries) vpcUpperSeries.setData([]);
+  if (vpcLowerSeries) vpcLowerSeries.setData([]);
+}
+function updateIndicatorOverlays(zlemaVals, vpc, times) {
+  if (!zlemaSeries || !vpcUpperSeries || !vpcLowerSeries) return;
+  zlemaSeries.applyOptions({ visible: sigState.useZlema });
+  vpcUpperSeries.applyOptions({ visible: sigState.useVpc });
+  vpcLowerSeries.applyOptions({ visible: sigState.useVpc });
+  zlemaSeries.setData(zlemaVals.map(function(v, i){ return { time: times[i], value: v }; }));
+  vpcUpperSeries.setData(vpc.upper.map(function(v, i){ return { time: times[i], value: v }; }));
+  vpcLowerSeries.setData(vpc.lower.map(function(v, i){ return { time: times[i], value: v }; }));
+}
+
 function computeSignals() {
   var liveHost = document.getElementById('setupLiveCard');
   var histHost = document.getElementById('setupHistoryList');
@@ -990,12 +1009,14 @@ function computeSignals() {
     liveHost.innerHTML = signalMessageHtml('Select at least one indicator (ZLEMA and/or VPC) above the main chart to run detection.');
     histHost.innerHTML = '';
     if (mainSeries) mainSeries.setMarkers([]);
+    clearIndicatorOverlays();
     return;
   }
   if (!ohlcRows.length) {
     liveHost.innerHTML = signalMessageHtml('No OHLC candle data yet for this range — the signal engine needs high/low candles to compute triggers.');
     histHost.innerHTML = '';
     if (mainSeries) mainSeries.setMarkers([]);
+    clearIndicatorOverlays();
     return;
   }
 
@@ -1004,9 +1025,11 @@ function computeSignals() {
   var lows = ohlcRows.map(function(r){ return r.low; });
   var times = ohlcRows.map(function(r){ return toEpochSeconds(r.candle_timestamp); });
 
-  var vpc = vpc_channel(highs, lows, sigState.vpcLen); // always computed: stop-loss levels come from this regardless of trigger selection
+  var zlemaVals = indicator_ZLEMA(closes, sigState.zlemaLen); // always computed: drawn on-chart whenever the ZLEMA checkbox is on
+  var vpc = vpc_channel(highs, lows, sigState.vpcLen); // always computed: stop-loss levels + the on-chart band both come from this regardless of trigger selection
+  updateIndicatorOverlays(zlemaVals, vpc, times);
 
-  var zlemaEvents = sigState.useZlema ? detectTriggers(closes, indicator_ZLEMA(closes, sigState.zlemaLen), SIGNAL_CONFIRM_BARS).filter(function(e){ return e.confirmed; }) : [];
+  var zlemaEvents = sigState.useZlema ? detectTriggers(closes, zlemaVals, SIGNAL_CONFIRM_BARS).filter(function(e){ return e.confirmed; }) : [];
   var vpcEvents = sigState.useVpc ? detectVpcTriggers(highs, lows, closes, vpc.upper, vpc.lower, SIGNAL_CONFIRM_BARS).filter(function(e){ return e.confirmed; }) : [];
 
   var finalEvents = [];
@@ -1109,6 +1132,9 @@ var putWallSeries = null;
 var overlaySeries = {};   // key -> line series (Group 1 lines)
 var bandPrimitive = null;
 var usingCandlesCurrently = null;
+var zlemaSeries = null;       // signal engine: ZLEMA trigger line
+var vpcUpperSeries = null;    // signal engine: VPC channel upper (context, not a trigger source itself)
+var vpcLowerSeries = null;
 
 function ensureMainChart(usingCandles) {
   if (mainEntry && usingCandlesCurrently === usingCandles) return;
@@ -1142,6 +1168,10 @@ function ensureMainChart(usingCandles) {
     });
   });
 
+  zlemaSeries = chart.addLineSeries({ color: colZlema, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  vpcUpperSeries = chart.addLineSeries({ color: colMuted, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  vpcLowerSeries = chart.addLineSeries({ color: colMuted, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+
   bandPrimitive = createBandPrimitive();
   mainSeries.attachPrimitive(bandPrimitive);
 }
@@ -1156,6 +1186,9 @@ function buildMainChart() {
       : '<span><span class="swatch" style="background:' + colBlue + ';"></span>Spot</span>') +
     '<span><span class="swatch" style="background:' + colRed + ';"></span>Call wall, dashed</span>' +
     '<span><span class="swatch" style="background:' + colAqua + ';"></span>Put wall, dotted</span>' +
+    '<span><span class="swatch" style="background:' + colZlema + ';"></span>ZLEMA (trigger line)</span>' +
+    '<span><span class="swatch" style="background:' + colMuted + ';"></span>VPC channel (context, dashed)</span>' +
+    '<span style="color:' + colAqua + ';">&#9650;</span><span style="color:' + colRed + ';">&#9660;</span> confirmed trigger, label = gate score' +
     '<span style="color:var(--text-muted);">Extra overlays via the Overlays toggles above</span>';
 
   if (usingCandles) {
