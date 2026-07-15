@@ -130,6 +130,7 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 .setupPanel .badge{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--bg-inset);color:var(--text-muted);flex:none;}
 .setupPanel .badge.badgeOk{background:rgba(38,166,154,0.16);color:var(--up);}
 .setupPanel .badge.badgeFail{background:var(--danger-bg);color:var(--down);}
+.setupPanel .badge.badgeOpen{background:rgba(41,98,255,0.16);color:var(--accent-blue);}
 .setupRow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;}
 .setupRow span:first-child{color:var(--text-secondary);}
 .setupPanel .footNote{font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.6;}
@@ -144,6 +145,12 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 .indicatorControls .lenLabel{font-size:11px;color:var(--text-muted);}
 .lenInput{width:56px;background:var(--bg-panel-alt);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;padding:5px 6px;font-family:inherit;font-size:13px;}
 .disclaimerSmall{font-size:11px;color:var(--text-muted);margin:10px 0 0;line-height:1.5;font-style:italic;}
+.msStats{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--text-secondary);background:var(--bg-inset);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;align-items:center;}
+.msStats b{color:var(--text-primary);}
+.msStatsLimit{border-color:#5c2b30;background:var(--danger-bg);}
+.msLimitMsg{color:var(--down);font-weight:600;}
+.indicatorControls input[type="checkbox"]:disabled + input,
+.indicatorControls label.indChk:has(input:disabled){opacity:0.45;}
 
 #lastSync{font-size:11px;color:var(--text-muted);text-align:right;margin:8px 20px 0;}
 </style>
@@ -232,11 +239,12 @@ button:hover{border-color:#3a3f4d;color:var(--text-primary);}
 <div class="panel">
   <p class="panelTitle">Nifty price with dynamic walls &amp; overlays</p>
   <div class="legend" id="mainLegend"></div>
-  <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. The amber line is the ZLEMA trigger; the grey dashed band is the VPC channel (context, shown when its checkbox below is on). Triangle markers show confirmed signal-engine triggers, labelled with the gate score. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
+  <p class="panelInfo">Nifty price candles (teal = up interval, red = down). Call wall (dashed red) marks the strike carrying the heaviest call open interest — it often acts as resistance; put wall (dotted green) marks the heaviest put OI — it often acts as support. The amber line is the ZLEMA trigger; the grey dashed band is the VPC channel (context, shown when its checkbox below is on). Triangle markers show confirmed signal-engine triggers, labelled with the gate score. When Magnet Snap is active, a red/green dashed line pair shows the live stop-loss and target while a position is open — both disappear together the moment either is hit. Toggle extra strike overlays and the expected-move band from the Overlays row above.</p>
   <div class="indicatorControls" id="indicatorControls">
     <label class="indChk"><input type="checkbox" id="chkZlema" checked> ZLEMA <span class="lenLabel">len</span> <input type="number" id="lenZlema" class="lenInput" value="24" min="2" max="200"></label>
     <label class="indChk"><input type="checkbox" id="chkVpc" checked> VPC <span class="lenLabel">len</span> <input type="number" id="lenVpc" class="lenInput" value="20" min="2" max="200"></label>
-    <span class="hint">Drives the Setup signal panel below (trigger engine). Both checked = confluence (AND), not either/or.</span>
+    <label class="indChk"><input type="checkbox" id="chkMagnet"> Magnet Snap <span class="lenLabel">(hypothesis, log mode)</span></label>
+    <span class="hint">ZLEMA/VPC drive the Setup signal panel below (both checked = confluence, AND not either/or). Magnet Snap is a standalone strategy — checking it ignores ZLEMA/VPC entirely.</span>
   </div>
   <div class="chartWrap" id="mainChartWrap" style="height:360px;" role="img" aria-label="Candlestick chart of Nifty price with configurable strike overlays"></div>
   <p id="ohlcFallbackNote" class="fallbackNote">No OHLC candle data for this range yet, showing spot price instead.</p>
@@ -784,7 +792,18 @@ var GATE_PASS_THRESHOLD = 3;
 var GATE_REGIME_RANGE_THRESHOLD = 50; // |spot_dist_from_max_pain| below this = "Range regime" note, else "Trend regime"
 var SIGNAL_CONFIRM_BARS = 1;
 
-var sigState = { zlemaLen: 24, vpcLen: 20, useZlema: true, useVpc: true };
+/* Magnet Snap - a standalone, backtested "fade toward max pain" strategy (see
+   MAGNET_SNAP_strategy_spec.md). STATUS: unvalidated hypothesis, LOG MODE ONLY -
+   PF 0.97-1.19 depending on cost assumption, from a 25-trade / 6-day sample. Not a
+   ZLEMA/VPC confluence input - mutually exclusive with them (see computeSignals). */
+var MS_MIN_DIST = 25;        // min |spot_dist_from_max_pain| in points to arm the setup
+var MS_SL_ATR = 2.0;         // stop loss = entry -/+ this * ATR(14)
+var MS_ATR_LEN = 14;
+var MS_MAX_HOLD_BARS = 40;   // 120 min time stop (3-min bars)
+var MS_MAX_LOSSES = 3;       // daily loss limit - stop taking new entries for the rest of the day
+var MS_CUTOFF_MIN = 15 * 60 + 25; // 15:25 IST - no new entries at/after this, force-flat at/after this
+
+var sigState = { zlemaLen: 24, vpcLen: 20, useZlema: true, useVpc: true, useMagnet: false };
 
 function indicator_ZLEMA(closes, length) {
   var lag = Math.floor((length - 1) / 2);
@@ -862,6 +881,187 @@ function nearestRowAtOrBefore(timeSec){
     if (rowTimes[mid] <= timeSec) { ans=mid; lo=mid+1; } else hi=mid-1;
   }
   return ans;
+}
+
+/* ---------- Magnet Snap: standalone strategy (not a ZLEMA/VPC confluence input) ----------
+   Fade toward max pain when spot is stretched and turning back; ATR stop, max-pain target,
+   one position at a time, 3-loss daily limit, hard flat by 15:25 IST. See
+   MAGNET_SNAP_strategy_spec.md - UNVALIDATED HYPOTHESIS, LOG MODE ONLY. */
+
+var istDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+function istDateKeyFromEpoch(sec) { return istDateFmt.format(new Date(sec * 1000)); }
+function istMinutesOfDay(sec) {
+  var parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })
+    .formatToParts(new Date(sec * 1000)).reduce(function(acc, p){ acc[p.type] = p.value; return acc; }, {});
+  return parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+}
+
+/* ATR(14): standard True Range, then a 14-bar SIMPLE average (spec is explicit: not Wilder-smoothed). */
+function computeATR(dayRows, length) {
+  var trs = [], atr = [];
+  for (var i = 0; i < dayRows.length; i++) {
+    var tr = (i === 0)
+      ? (dayRows[i].high - dayRows[i].low)
+      : Math.max(dayRows[i].high - dayRows[i].low, Math.abs(dayRows[i].high - dayRows[i-1].close), Math.abs(dayRows[i].low - dayRows[i-1].close));
+    trs.push(tr);
+    if (i < length - 1) { atr.push(null); continue; }
+    var sum = 0;
+    for (var j = i - length + 1; j <= i; j++) sum += trs[j];
+    atr.push(sum / length);
+  }
+  return atr;
+}
+
+function groupOhlcByDay(ohlcRowsIn) {
+  var groups = {}, order = [];
+  ohlcRowsIn.forEach(function(r) {
+    var key = istDateKeyFromEpoch(toEpochSeconds(r.candle_timestamp));
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(r);
+  });
+  return order.map(function(k){ return groups[k]; });
+}
+
+/* Runs the full entry/exit state machine for one day's bars in isolation (loss counter and
+   ATR both reset at the day boundary, per spec: "every day starts fresh"). */
+function runMagnetSnapDay(dayRows) {
+  var atr = computeATR(dayRows, MS_ATR_LEN);
+  var trades = [];
+  var events = []; // entry markers: { idx, dir }
+  var position = null;
+  var lossesToday = 0;
+
+  for (var i = 1; i < dayRows.length; i++) {
+    var bar = dayRows[i];
+    var timeSec = toEpochSeconds(bar.candle_timestamp);
+    var minutesIst = istMinutesOfDay(timeSec);
+    var hadPositionAtStart = !!position;
+
+    if (position) {
+      var exitReason = null, exitPrice = null;
+      if (position.dir === 'LONG') {
+        if (bar.high >= position.tg) { exitReason = 'TG'; exitPrice = position.tg; }
+        else if (bar.low <= position.sl) { exitReason = 'SL'; exitPrice = position.sl; }
+      } else {
+        if (bar.low <= position.tg) { exitReason = 'TG'; exitPrice = position.tg; }
+        else if (bar.high >= position.sl) { exitReason = 'SL'; exitPrice = position.sl; }
+      }
+      position.barsHeld++;
+      if (!exitReason && position.barsHeld >= MS_MAX_HOLD_BARS) { exitReason = 'Time'; exitPrice = bar.close; }
+      if (!exitReason && minutesIst >= MS_CUTOFF_MIN) { exitReason = 'EOD'; exitPrice = bar.close; }
+      if (exitReason) {
+        var points = position.dir === 'LONG' ? (exitPrice - position.entry) : (position.entry - exitPrice);
+        trades.push({
+          dir: position.dir, entryIdx: position.entryIdx, entry: position.entry, sl: position.sl, tg: position.tg,
+          mpDist: position.mpDist, exitIdx: i, exitReason: exitReason, exitPrice: exitPrice, points: points
+        });
+        if (points < 0) lossesToday++;
+        position = null;
+      }
+    }
+
+    // "After a position closes, the very next bar can produce a new signal" - so a position that
+    // just closed on THIS bar is not re-evaluated for entry until the next iteration.
+    if (!hadPositionAtStart && !position) {
+      if (minutesIst >= MS_CUTOFF_MIN) continue;
+      if (lossesToday >= MS_MAX_LOSSES) continue;
+      if (atr[i] == null) continue;
+      var rowIdx = nearestRowAtOrBefore(timeSec);
+      var orow = rowIdx >= 0 ? rows[rowIdx] : null;
+      if (!orow || orow.spot_dist_from_max_pain == null || orow.max_pain_strike == null) continue;
+      var dist = orow.spot_dist_from_max_pain;
+      var prevClose = dayRows[i-1].close;
+      if (dist < -MS_MIN_DIST && bar.close > prevClose) {
+        position = { dir: 'LONG', entryIdx: i, entry: bar.close, sl: bar.close - MS_SL_ATR * atr[i], tg: orow.max_pain_strike, barsHeld: 0, mpDist: dist };
+        events.push({ idx: i, dir: 'BULL' });
+      } else if (dist > MS_MIN_DIST && bar.close < prevClose) {
+        position = { dir: 'SHORT', entryIdx: i, entry: bar.close, sl: bar.close + MS_SL_ATR * atr[i], tg: orow.max_pain_strike, barsHeld: 0, mpDist: dist };
+        events.push({ idx: i, dir: 'BEAR' });
+      }
+    }
+  }
+  return { trades: trades, events: events, openPosition: position, lossesToday: lossesToday };
+}
+
+/* Combines per-day simulations across the whole loaded range (day-grouped so state resets
+   correctly), with global (whole-ohlcRows) indices for markers/lines. "Today" for the stats
+   counter and any open position is always the most recent day group in the loaded range. */
+function computeMagnetSnapAll() {
+  var dayGroups = groupOhlcByDay(ohlcRows);
+  var allTrades = [];
+  var markerEvents = [];
+  var todaysTrades = [], openPosition = null, lossesToday = 0;
+  var offset = 0;
+  dayGroups.forEach(function(dayRows, gi) {
+    var res = runMagnetSnapDay(dayRows);
+    res.trades.forEach(function(t) {
+      allTrades.push(Object.assign({}, t, { entryIdx: t.entryIdx + offset, exitIdx: t.exitIdx + offset }));
+    });
+    res.events.forEach(function(e) { markerEvents.push({ idx: e.idx + offset, dir: e.dir, exitReason: null }); });
+    if (gi === dayGroups.length - 1) {
+      todaysTrades = res.trades.map(function(t){ return Object.assign({}, t, { entryIdx: t.entryIdx + offset, exitIdx: t.exitIdx + offset }); });
+      openPosition = res.openPosition ? Object.assign({}, res.openPosition, { entryIdx: res.openPosition.entryIdx + offset }) : null;
+      lossesToday = res.lossesToday;
+    }
+    offset += dayRows.length;
+  });
+  // attach exit reason (or OPEN) to each marker event for on-chart labels
+  var byIdx = {};
+  allTrades.forEach(function(t){ byIdx[t.entryIdx] = t.exitReason; });
+  markerEvents.forEach(function(e){ e.exitReason = byIdx.hasOwnProperty(e.idx) ? byIdx[e.idx] : 'OPEN'; });
+  return { allTrades: allTrades, markerEvents: markerEvents, todaysTrades: todaysTrades, openPosition: openPosition, lossesToday: lossesToday };
+}
+
+function magnetStatsHtml(trades, lossesToday) {
+  var wins = trades.filter(function(t){ return t.points > 0; }).length;
+  var losses = trades.filter(function(t){ return t.points <= 0; }).length;
+  var limitReached = lossesToday >= MS_MAX_LOSSES;
+  return '<div class="msStats' + (limitReached ? ' msStatsLimit' : '') + '">' +
+    '<span>Trades: <b>' + trades.length + '</b></span>' +
+    '<span>Wins: <b>' + wins + '</b></span>' +
+    '<span>Losses: <b>' + losses + '</b></span>' +
+    '<span>Loss limit: <b>' + lossesToday + '/' + MS_MAX_LOSSES + '</b></span>' +
+    (limitReached ? '<span class="msLimitMsg">Daily loss limit reached — no new entries</span>' : '') +
+    '</div>';
+}
+
+/* Maps an open position or a closed trade onto the same signalCardHtml() shape used by
+   ZLEMA/VPC, so the layout (Setup/Direction/Entry/Stop loss/Target + badge + note) is identical. */
+function magnetPositionCard(pos, isOpen, small) {
+  var dirLabel = pos.dir === 'LONG' ? 'Long' : 'Short';
+  var note = isOpen
+    ? ('Spot ' + Math.abs(pos.mpDist).toFixed(0) + ' pts ' + (pos.dir === 'LONG' ? 'below' : 'above') + ' max pain ' + fmt(pos.tg, 0) + ', turn-' + (pos.dir === 'LONG' ? 'up' : 'down') + ' confirmed. Target = max pain.')
+    : ('Exited on ' + pos.exitReason + ' — ' + (pos.points >= 0 ? '+' : '') + fmt(pos.points, 2) + ' pts.');
+  var sig = {
+    setup: 'Magnet Snap',
+    direction: dirLabel,
+    entry: fmt(pos.entry, 2),
+    stopLoss: fmt(pos.sl, 2),
+    target: fmt(pos.tg, 2),
+    badgeText: isOpen ? 'OPEN' : pos.exitReason,
+    badgeOk: isOpen ? false : (pos.points > 0),
+    badgeOpen: !!isOpen,
+    note: note,
+    timeLabel: istCrosshairFmt.format(new Date(toEpochSeconds(ohlcRows[pos.entryIdx].candle_timestamp) * 1000)),
+    exitReason: isOpen ? null : pos.exitReason,
+    pointsText: isOpen ? null : ((pos.points >= 0 ? '+' : '') + fmt(pos.points, 2))
+  };
+  return signalCardHtml(sig, small);
+}
+
+function clearMagnetLines() {
+  if (msSlSeries) { msSlSeries.setData([]); msSlSeries.applyOptions({ visible: false }); }
+  if (msTgSeries) { msTgSeries.setData([]); msTgSeries.applyOptions({ visible: false }); }
+}
+function updateMagnetSnapLines(openPosition, times) {
+  if (!msSlSeries || !msTgSeries) return;
+  if (!openPosition) { clearMagnetLines(); return; }
+  var entryTime = times[openPosition.entryIdx];
+  var lastTime = times[times.length - 1];
+  msSlSeries.setData([{ time: entryTime, value: openPosition.sl }, { time: lastTime, value: openPosition.sl }]);
+  msTgSeries.setData([{ time: entryTime, value: openPosition.tg }, { time: lastTime, value: openPosition.tg }]);
+  msSlSeries.applyOptions({ visible: true });
+  msTgSeries.applyOptions({ visible: true });
 }
 
 /* Gate module: scores a confirmed trigger against the options chain. Never decides
@@ -946,7 +1146,10 @@ function signalCardHtml(sig, small) {
       '<div class="setupRow"><span>Target</span><span>-</span></div>' +
       '<p class="footNote">No active setup. Waiting for a confirmed, gate-passed trigger.</p></div>';
   }
-  var badgeClass = sig.badgeOk ? 'badgeOk' : 'badgeFail';
+  var badgeClass = sig.badgeOpen ? 'badgeOpen' : (sig.badgeOk ? 'badgeOk' : 'badgeFail');
+  var extraRows = '';
+  if (sig.exitReason) extraRows += '<div class="setupRow"><span>Exit</span><span>' + sig.exitReason + '</span></div>';
+  if (sig.pointsText) extraRows += '<div class="setupRow"><span>Points</span><span>' + sig.pointsText + '</span></div>';
   return '<div class="setupPanel' + (small ? ' setupPanelSmall' : '') + '">' +
     '<div class="head"><p>' + sig.timeLabel + '</p><span class="badge ' + badgeClass + '">' + sig.badgeText + '</span></div>' +
     '<div class="setupRow"><span>Setup</span><span>' + sig.setup + '</span></div>' +
@@ -954,6 +1157,7 @@ function signalCardHtml(sig, small) {
     '<div class="setupRow"><span>Entry</span><span>' + sig.entry + '</span></div>' +
     '<div class="setupRow"><span>Stop loss</span><span>' + sig.stopLoss + '</span></div>' +
     '<div class="setupRow"><span>Target</span><span>' + sig.target + '</span></div>' +
+    extraRows +
     '<p class="footNote">' + sig.note + '</p></div>';
 }
 
@@ -1000,10 +1204,53 @@ function updateIndicatorOverlays(zlemaVals, vpc, times) {
   vpcLowerSeries.setData(vpc.lower.map(function(v, i){ return { time: times[i], value: v }; }));
 }
 
+/* Magnet Snap standalone path - per spec, checking Magnet Snap makes ZLEMA/VPC triggers
+   irrelevant entirely (it is not a confluence input), so this never touches zlemaEvents/vpcEvents. */
+function computeMagnetSnapSignals() {
+  var liveHost = document.getElementById('setupLiveCard');
+  var histHost = document.getElementById('setupHistoryList');
+  clearIndicatorOverlays();
+
+  if (!ohlcRows.length) {
+    liveHost.innerHTML = signalMessageHtml('No OHLC candle data yet for this range — Magnet Snap needs high/low/close candles.');
+    histHost.innerHTML = '';
+    if (mainSeries) mainSeries.setMarkers([]);
+    clearMagnetLines();
+    return;
+  }
+
+  var times = ohlcRows.map(function(r){ return toEpochSeconds(r.candle_timestamp); });
+  var result = computeMagnetSnapAll();
+
+  var markerEvents = result.markerEvents.map(function(e) {
+    return { idx: e.idx, direction: e.dir === 'BULL' ? 'Long' : 'Short', badgeText: e.exitReason };
+  });
+  applySignalMarkers(markerEvents, times);
+  updateMagnetSnapLines(result.openPosition, times);
+
+  var statsHtml = magnetStatsHtml(result.todaysTrades, result.lossesToday);
+  var liveCard;
+  if (result.openPosition) {
+    liveCard = magnetPositionCard(result.openPosition, true, false);
+  } else if (result.lossesToday >= MS_MAX_LOSSES) {
+    liveCard = signalMessageHtml('Daily loss limit reached (' + MS_MAX_LOSSES + ' losers) — no new entries for the rest of the day.');
+  } else {
+    liveCard = signalMessageHtml('No open position. Waiting for the next Magnet Snap entry (spot stretched &gt;' + MS_MIN_DIST + ' pts from max pain, then a turn confirmed).');
+  }
+  liveHost.innerHTML = statsHtml + liveCard;
+
+  histHost.innerHTML = result.allTrades.length
+    ? result.allTrades.slice().reverse().map(function(t){ return magnetPositionCard(t, false, true); }).join('')
+    : '<p class="hint">No Magnet Snap trades yet in this range.</p>';
+}
+
 function computeSignals() {
   var liveHost = document.getElementById('setupLiveCard');
   var histHost = document.getElementById('setupHistoryList');
   if (!liveHost || !histHost) return;
+
+  if (sigState.useMagnet) { computeMagnetSnapSignals(); return; }
+  clearMagnetLines();
 
   if (!sigState.useZlema && !sigState.useVpc) {
     liveHost.innerHTML = signalMessageHtml('Select at least one indicator (ZLEMA and/or VPC) above the main chart to run detection.');
@@ -1135,6 +1382,8 @@ var usingCandlesCurrently = null;
 var zlemaSeries = null;       // signal engine: ZLEMA trigger line
 var vpcUpperSeries = null;    // signal engine: VPC channel upper (context, not a trigger source itself)
 var vpcLowerSeries = null;
+var msSlSeries = null;        // Magnet Snap: stop-loss line, drawn only while a position is open
+var msTgSeries = null;        // Magnet Snap: target line, drawn only while a position is open
 
 function ensureMainChart(usingCandles) {
   if (mainEntry && usingCandlesCurrently === usingCandles) return;
@@ -1172,6 +1421,9 @@ function ensureMainChart(usingCandles) {
   vpcUpperSeries = chart.addLineSeries({ color: colMuted, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
   vpcLowerSeries = chart.addLineSeries({ color: colMuted, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
 
+  msSlSeries = chart.addLineSeries({ color: colRed, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false });
+  msTgSeries = chart.addLineSeries({ color: colAqua, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false });
+
   bandPrimitive = createBandPrimitive();
   mainSeries.attachPrimitive(bandPrimitive);
 }
@@ -1188,7 +1440,9 @@ function buildMainChart() {
     '<span><span class="swatch" style="background:' + colAqua + ';"></span>Put wall, dotted</span>' +
     '<span><span class="swatch" style="background:' + colZlema + ';"></span>ZLEMA (trigger line)</span>' +
     '<span><span class="swatch" style="background:' + colMuted + ';"></span>VPC channel (context, dashed)</span>' +
-    '<span style="color:' + colAqua + ';">&#9650;</span><span style="color:' + colRed + ';">&#9660;</span> confirmed trigger, label = gate score' +
+    '<span style="color:' + colAqua + ';">&#9650;</span><span style="color:' + colRed + ';">&#9660;</span> confirmed trigger, label = gate score (or Magnet Snap exit reason)' +
+    '<span><span class="swatch" style="background:' + colRed + ';"></span>Magnet Snap SL, dashed</span>' +
+    '<span><span class="swatch" style="background:' + colAqua + ';"></span>Magnet Snap TG, dashed</span>' +
     '<span style="color:var(--text-muted);">Extra overlays via the Overlays toggles above</span>';
 
   if (usingCandles) {
@@ -1614,6 +1868,11 @@ document.getElementById('chkZlema').addEventListener('change', function(e){ sigS
 document.getElementById('chkVpc').addEventListener('change', function(e){ sigState.useVpc = e.target.checked; computeSignals(); });
 document.getElementById('lenZlema').addEventListener('change', function(e){ sigState.zlemaLen = clampLen(e.target.value, sigState.zlemaLen); e.target.value = sigState.zlemaLen; computeSignals(); });
 document.getElementById('lenVpc').addEventListener('change', function(e){ sigState.vpcLen = clampLen(e.target.value, sigState.vpcLen); e.target.value = sigState.vpcLen; computeSignals(); });
+document.getElementById('chkMagnet').addEventListener('change', function(e){
+  sigState.useMagnet = e.target.checked;
+  ['chkZlema', 'chkVpc', 'lenZlema', 'lenVpc'].forEach(function(id){ document.getElementById(id).disabled = sigState.useMagnet; });
+  computeSignals();
+});
 
 /* ---------- init ---------- */
 

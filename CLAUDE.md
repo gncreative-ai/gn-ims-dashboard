@@ -85,6 +85,36 @@ Pass threshold: `GATE_PASS_THRESHOLD` (3) of the 4 scored checks (regime is cont
 
 **On-chart ZLEMA line + VPC channel:** both indicators are also drawn directly on the main chart as their own persistent line series (`zlemaSeries`, `vpcUpperSeries`, `vpcLowerSeries`, created in `ensureMainChart` alongside the other main-chart series, rebuilt whenever the chart itself rebuilds on the candle↔spot-line fallback switch). ZLEMA renders as an amber line (`colZlema`); the VPC channel renders as two grey dashed lines (reusing `colMuted`, the dashboard's existing "reference/context" color). `updateIndicatorOverlays(zlemaVals, vpc, times)`, called from `computeSignals()`, both sets the data and toggles each series' `visible` to match its own checkbox — so unchecking VPC hides its channel on the chart exactly as it stops contributing triggers, without needing separate toggle UI. Values are computed unconditionally regardless of checkbox state (same reasoning as the stop-loss levels), only the on-chart *visibility* follows the checkbox.
 
+## Magnet Snap (standalone strategy, LOG MODE — unvalidated hypothesis)
+
+A second, entirely separate signal engine sharing the same checkbox row as ZLEMA/VPC (`chkMagnet`) and the same Setup Signal panel UI (live card + history list), but **not a confluence input** — it is mutually exclusive with ZLEMA/VPC. Checking "Magnet Snap" disables the ZLEMA/VPC checkboxes and length inputs entirely (`computeSignals()` branches to `computeMagnetSnapSignals()` and returns before touching ZLEMA/VPC logic at all). Source: `MAGNET_SNAP_strategy_spec.md`.
+
+**STATUS — read before touching this code or trusting its output:** this is an *unvalidated hypothesis*, built in LOG MODE only. Backtested on a 25-trade / 6-day sample (Jul 8–15 2026): profit factor **0.97 at 8pt round-trip cost, 1.19 at 5pt cost** — it is entirely dependent on real fill costs that have not been measured. It bled −92pts on the one trend day in the sample (Jul 8) even with the loss limit; this is a fade-toward-max-pain strategy and will always lose on a real trend. 25 trades is an anecdote, not a sample. **Do not present this as a trade recommendation** — the live/history cards exist to log outcomes for later validation, not to signal "take this trade."
+
+**Rejected strategy families (from the same search — don't blindly re-test these):**
+
+| Family | Best result | Verdict |
+|---|---|---|
+| Dip-buy below EMA21 | Gross PF 1.51, net PF 0.99 | Real gross edge, 100% consumed by transaction costs |
+| Opening Range Breakout (15/30/45min) | PF 0.70 | Rejected |
+| EMA 9/21 momentum cross | PF 0.33 | Rejected — worst of all |
+| Straddle-expansion breakout | PF 0.78 | Rejected |
+| Options gates (GEX/PCR/basis) added to dip-buy | PF 1.12 max, 8 trades | Rejected — no gate rescued it |
+
+**Baseline noise stats** (the sanity check for any future strategy proposal on this instrument/timeframe): median 3-min bar True Range is **13.8 points**; a random entry's median max-favourable-excursion is only **~25–30 points over 60 min** (~33–45 over 120 min). Any strategy promising large scalps here is not realistic.
+
+**Rules (implemented exactly as specified, no discretion added):**
+- Entry LONG: `spot_dist_from_max_pain < -MS_MIN_DIST` (spot ≥25pts below max pain) AND `close > previous close` (turn-up), no position open, fewer than `MS_MAX_LOSSES` losers today, before 15:25 IST. Entry SHORT is the mirror image (`> +MS_MIN_DIST`, turn-down).
+- On entry: `SL = entry ∓ MS_SL_ATR × ATR(14)` (LONG: minus; SHORT: plus), `TG = max_pain_strike` — a structural target, not an ATR multiple.
+- ATR(14) is a **plain 14-bar simple average** of True Range (not Wilder-smoothed), recomputed fresh each day (`computeATR`, reset at each IST day boundary via `groupOhlcByDay`/`istDateKeyFromEpoch`).
+- Exit priority (first hit wins, checked in this order every bar): TG → SL → time stop (`MS_MAX_HOLD_BARS` = 40 bars / 120min) → EOD (`MS_CUTOFF_MIN` = 15:25 IST, force-exit at close).
+- **One position at a time.** After a position closes on bar *i*, entry is only re-evaluated from bar *i+1* onward (`runMagnetSnapDay`'s `hadPositionAtStart` guard) — never re-enters on the same bar it just exited.
+- **Daily loss limit** (`MS_MAX_LOSSES` = 3): once today's losers reach this, no new entries for the rest of the day; the live panel shows an explicit "Daily loss limit reached" message.
+- **Every day resets independently** — no carried positions, loss counter and ATR both recomputed from that day's bars only. In multi-day range mode, `computeMagnetSnapAll()` runs `runMagnetSnapDay` per IST calendar day and only treats the **most recent** day group as "today" for the stats counter/open position; all days' trades still appear in the history list.
+- Constants (`MS_MIN_DIST=25`, `MS_SL_ATR=2.0`, `MS_ATR_LEN=14`, `MS_MAX_HOLD_BARS=40`, `MS_MAX_LOSSES=3`, `MS_CUTOFF_MIN=15:25`) are named at the top of the signal-engine script block, matching the spec's constants list — treat all of them as fitted-to-6-days, not tuned.
+
+**UI:** entries draw the same green-`arrowUp`/red-`arrowDown` markers as ZLEMA/VPC (via the same `applySignalMarkers`), labelled with the exit reason (`TG`/`SL`/`Time`/`EOD`/`OPEN`) instead of a gate score. While a position is open, `msSlSeries` (red dashed) and `msTgSeries` (green dashed) draw a horizontal line pair from the entry bar to the latest bar (`updateMagnetSnapLines`); both are cleared together the instant the position closes (`clearMagnetLines`), and a fresh pair is drawn on the next entry. The live/history cards reuse `signalCardHtml` (Setup="Magnet Snap") extended with optional Exit/Points rows and a third badge style (`badgeOpen`, blue) for a still-open trade. `magnetStatsHtml` renders the running day counter (trades/wins/losses/loss-limit) above the live card.
+
 ## Toggle / preset system
 
 - **Two separate toggle rows**: "Overlays" (Group 1 → lines/band on the main chart) and "Panels" (Groups 2–4 + the existing velocity/ATM panels → whole panes below). Rows are generated from `overlayToggleDefs` / `panelToggleDefs`; a unified handler flips `toggles[key]`, applies the single effect, clears the active-preset highlight, and persists.
@@ -131,3 +161,4 @@ Pass threshold: `GATE_PASS_THRESHOLD` (3) of the 4 scored checks (regime is cont
 - The default first-load view stays strict-minimal (candles + Call/Put walls). The choice of a default "primary" preset is deliberately deferred — don't auto-apply one.
 - Signal engine: keep the trigger module (`indicator_ZLEMA`/`vpc_channel`/`detectTriggers`/`detectVpcTriggers`) and the gate module (`scoreEvent`) as separate, independently callable functions — never merge them. The gate scores trust, it never decides entry timing.
 - Signal engine stays dashboard-only (client-side, no writes). Porting the same trigger+gate logic into n8n with a new Supabase table for Telegram alerting is a distinct, not-yet-started future phase — do not build it here.
+- Magnet Snap stays mutually exclusive with ZLEMA/VPC (never run as a third confluence input) and stays an unvalidated, LOG-mode-only hypothesis — don't reframe its cards or notes as a trade recommendation, and don't re-test the rejected strategy families (ORB, EMA 9/21 cross, straddle-expansion breakout) without new evidence.
